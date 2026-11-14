@@ -50,6 +50,23 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.wcstwidth
 
+Snippet Reconstruction
+======================
+
+.. autofunction:: wcwidth.Snippet
+
+.. autofunction:: wcwidth.ColumnSpan
+
+.. autofunction:: wcwidth.TextRange
+
+.. autofunction:: wcwidth.Reconstruction
+
+.. autofunction:: wcwidth.snippet_ranges
+
+.. autofunction:: wcwidth.reconcile
+
+.. autofunction:: wcwidth.find_originals
+
 .. _SEMVER: https://semver.org
 .. _XTVERSION: https://vtdn.dev/docs/dcs/xtversion/
 .. _ENQ: https://documentation.help/PuTTY/config-answerback.html

@@ -15,6 +15,7 @@ __lazy_modules__ = [
     "wcwidth.grapheme",
     "wcwidth.hyperlink",
     "wcwidth.linebreak",
+    "wcwidth.reconstruct",
     "wcwidth.sgr_state",
     "wcwidth.table_ambiguous",
     "wcwidth.table_linebreak",
@@ -106,6 +107,10 @@ else:
     from .escape_sequences import strip_sequences
 
 from ._wcwidth import _wcmatch_version, _wcversion_value  # isort:skip  # pylint: disable=wrong-import-position
+from .reconstruct import (  # isort:skip  # pylint: disable=wrong-import-position
+    Snippet, ColumnSpan, TextRange, Reconstruction,
+    snippet_ranges, reconcile, find_originals,
+)
 
 
 # The __all__ attribute defines the items exported from statement,
@@ -114,7 +119,9 @@ __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
            'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
            'list_versions', 'list_term_programs', 'propagate_sgr',
-           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
+           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams',
+           'Snippet', 'ColumnSpan', 'TextRange', 'Reconstruction',
+           'snippet_ranges', 'reconcile', 'find_originals')
 
 # Version is stamped by code generation (bin/update-tables.py) from pyproject.toml.
 __version__ = '0.9.5'
