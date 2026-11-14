@@ -3,6 +3,7 @@
 ## master (unreleased)
 
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
+- New nominal-period scheduling toolkit (`workalendar.schedule`): month-end run tables that keep each nominal period's identity, with a restricted postpone policy falling back to the last working day of the nominal month and an unrestricted policy for selected products; raises `NoWorkingDayInPeriodError` instead of silently using another month's slot, and supports period-targeted resends.
 
 ## v17.0.0 (2023-01-01)
 
