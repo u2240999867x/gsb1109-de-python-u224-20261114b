@@ -321,6 +321,49 @@ tag: TinyTag = TinyTag.get('/some/music.mp3')
 metadata: dict = tag.as_dict()
 ```
 
+### Scoped Credits
+
+The `credits` module combines the common attributes and `other` values into
+scoped attribution relationships: album-scoped credits (e.g. the album
+artist "Various Artists" on a compilation) and track-scoped credits
+(performers, accompaniment, composers, conductors).
+
+```python
+from tinytag import TinyTag, extract_credits
+
+tag: TinyTag = TinyTag.get('/some/music.mp3')
+credits = extract_credits(tag, source='id3v2.3')
+
+print(credits.album)  # album-scoped credits
+print(credits.track)  # track-scoped credits
+```
+
+The `source` argument names the tagging convention used to interpret
+in-string multi-value separators (see `SOURCE_SEPARATORS`). Sources with
+native multi-value fields (ID3v2.4, Vorbis, MP4, ...) never split values
+in-string, so a band genuinely named "AC/DC" is kept intact; even for
+sources with a slash convention (ID3v2.2/2.3), "AC/DC" is protected.
+
+Sort names (e.g. `artistsort`) are associated with a role's names only
+when their counts match exactly, giving a unique positional
+correspondence.
+
+The `CreditIndex` class provides search over extracted credits. Searching
+a name finds the tracks it is credited on, while albums are only found
+through album-scoped credits, so a compilation album is not listed among
+a guest performer's albums:
+
+```python
+from tinytag import CreditIndex, TinyTag
+
+index = CreditIndex()
+index.add_tag('track-1', TinyTag.get('/some/music.mp3'),
+              album_id='album-1')
+
+print(index.tracks('AC/DC'))  # tracks the band is credited on
+print(index.albums('AC/DC'))  # albums with album-scoped credits only
+```
+
 ### Images
 
 Additionally, you can also read embedded images by passing a `image=True`
