@@ -1262,3 +1262,90 @@ errors. Captions that start at the same time keep their order:
     vtt.save()
 
 Validating is also available from the command line, see :doc:`cli`.
+
+Reading speed by language
+-------------------------
+
+Each language of a caption is measured with its own rule: ``WORDS`` counts
+the words and ``GRAPHEMES`` counts the visible graphemes, so a combining
+mark stored as another code point does not add one. The language of a run
+of text is marked with the ``<lang>`` cue tag, and text outside one is
+counted for the first language rule:
+
+.. code-block:: python
+
+    from webvtt import (
+        WebVTT, LanguageSpec, CountingRule,
+        reading_table, count_graphemes, count_words
+        )
+
+    count_words("don't stop")  # 2
+    # 'e' followed by a combining acute accent, two code points
+    count_graphemes('é')  # 1
+
+    vtt = WebVTT.from_string(
+        'WEBVTT\n\n'
+        '00:00:00.000 --> 00:00:10.000\n'
+        'Hello world <lang es>hola amigo</lang>\n'
+        )
+
+    languages = [
+        LanguageSpec('en', CountingRule.WORDS, 2.0),
+        LanguageSpec('es', CountingRule.WORDS, 3.0),
+        ]
+
+    row = reading_table(vtt.captions, languages)[0]
+    row.readable_seconds  # 10.0
+    [(load.language, load.amount) for load in row.languages]
+    # [('en', 2), ('es', 2)]
+    row.languages[1].excess_seconds  # 0.0
+
+The ``rate`` of a rule is the reading budget in words or graphemes per
+second, and ``excess_seconds`` is the time past it. Narration pauses are
+subtracted from the readable time; pauses that overlap are merged and
+subtracted only once, and the remaining ``readable_windows`` give the
+intervals in which the caption can be read:
+
+.. code-block:: python
+
+    row = reading_table(
+        vtt.captions, languages, pauses=[(2, 4), (3, 6)]
+        )[0]
+    row.readable_seconds  # 6.0
+    [(str(start), str(end)) for start, end in row.readable_windows]
+    # [('00:00:00.000', '00:00:02.000'),
+    #  ('00:00:06.000', '00:00:10.000')]
+
+A caption covered entirely by pauses has no readable window and is reported
+as unreadable, with ``speed`` set to ``None`` instead of dividing by zero:
+
+.. code-block:: python
+
+    row = reading_table(
+        vtt.captions, languages, pauses=[(0, 10)]
+        )[0]
+    row.unreadable  # True
+    row.languages[0].unreadable  # True
+    row.languages[0].speed  # None
+
+By default each language reads independently and gets the full readable
+time. Languages shown together can instead share it, split by their
+``weight``; the shares are rounded to whole milliseconds and add up to the
+readable time:
+
+.. code-block:: python
+
+    from webvtt import TimeSharing
+
+    shared = [
+        LanguageSpec('en', CountingRule.WORDS, 2.0,
+                     sharing=TimeSharing.SHARED, weight=2.0),
+        LanguageSpec('es', CountingRule.WORDS, 3.0,
+                     sharing=TimeSharing.SHARED, weight=1.0),
+        ]
+    row = reading_table(vtt.captions, shared)[0]
+    [load.readable_seconds for load in row.languages]
+    # [6.667, 3.333]
+
+``format_reading_table`` lays the results out as text with one group of
+columns per language, its amount, readable time and excess time.

@@ -1,6 +1,11 @@
 History
 =======
 
+Unreleased
+----------
+
+* Added the ``reading`` module, which reports the reading load of each caption per language: the words or visible graphemes of its text, its readable time after the narration pauses that fall in it are merged and subtracted once, the time past the reading budget, and the captions fully covered by pauses. Languages can read independently or share the readable time, split by weights, and ``format_reading_table`` writes the results as a table with a column per language
+
 0.8.0 (08-11-2026)
 ------------------
 
