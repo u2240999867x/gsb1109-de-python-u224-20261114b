@@ -849,6 +849,106 @@ def _to_cue_settings(
     return CueSettings.from_string(value)
 
 
+@dataclass
+class VoiceSpan:
+    """
+    The speaker of a range of the visible text of a caption.
+
+    The spans of a caption cover its whole visible text, `Caption.text`, in
+    order and without gaps, so the text each one points to joins back into
+    `Caption.text`. A span whose :attr:`voice` is None covers text that is
+    outside every voice span, such as text before the first one or text after
+    a voice span closes.
+
+    The voice is the name as written in the voice span, so two spans with the
+    same name only record the same display name, not that the same person
+    speaks across captions or files, as the name alone gives no identity.
+
+    :param start: index of the first character of the range in `Caption.text`
+    :param end: index one past the last character of the range
+    :param voice: the name of the speaker, or None for text without one
+    """
+
+    start: int
+    end: int
+    voice: str | None
+
+    def __str__(self) -> str:
+        """Return the range of the visible text and the name of the speaker."""
+        return f'{self.start}:{self.end} {self.voice!r}'
+
+
+def _voice_span_name(tag: str) -> str | None:
+    """
+    Return the speaker named by a voice span tag, or None.
+
+    A voice span starts with ``v``, optionally followed by classes as in
+    ``v.loud``, then whitespace and the name. The tag content is given without
+    the angle brackets, as `_iter_cue_text_tokens` yields it.
+
+    :param tag: the content of a cue tag
+    :returns: the name of the speaker, or None when the tag is not a voice
+        span with a name
+    """
+    match = Caption.VOICE_SPAN_PATTERN.fullmatch(f'<{tag}>')
+    return match.group(1) if match else None
+
+
+def _caption_voice_spans(lines: Sequence[str]) -> list[VoiceSpan]:
+    """
+    Split the visible text of caption lines into the ranges of each speaker.
+
+    The lines are scanned in order as `Caption.text`, which joins them with a
+    newline. A voice span start names the speaker of the text that follows
+    until its end tag, and an end tag restores the speaker of the enclosing
+    span, or no speaker at the top level, so nested voice spans give back the
+    outer voice. Text outside every voice span is recorded with no speaker.
+    Ranges of the same speaker that follow each other are joined, so the
+    result has no adjacent ranges with the same voice.
+
+    :param lines: the lines of the raw text of a caption
+    :returns: the spans of visible text, in order and without gaps
+    """
+    # the speaker of each open voice span, innermost last
+    stack: list[str | None] = []
+    spans: list[VoiceSpan] = []
+    # the position in the visible text where the next text starts
+    position = 0
+
+    def current_voice() -> str | None:
+        """Return the speaker of the innermost open voice span, if any."""
+        return stack[-1] if stack else None
+
+    def add_text(length: int) -> None:
+        """Record a run of visible text under the current speaker."""
+        if (spans and
+                spans[-1].end == position and
+                spans[-1].voice == current_voice()):
+            spans[-1].end = position + length
+        else:
+            spans.append(
+                VoiceSpan(position, position + length, current_voice())
+                )
+
+    for line_number, line in enumerate(lines):
+        if line_number:
+            # the newline that joins the lines in Caption.text
+            add_text(1)
+            position += 1
+        for token, is_tag in _iter_cue_text_tokens(line):
+            if is_tag:
+                name = _voice_span_name(token)
+                if name is not None:
+                    stack.append(name)
+                elif token == '/v' and stack:
+                    stack.pop()
+            else:
+                add_text(len(token))
+                position += len(token)
+
+    return spans
+
+
 class Caption:
     """Representation of a caption."""
 
@@ -1095,10 +1195,31 @@ class Caption:
         for line in self.lines:
             for token, is_tag in _iter_cue_text_tokens(line):
                 if is_tag:
-                    match = self.VOICE_SPAN_PATTERN.fullmatch(f'<{token}>')
-                    if match:
-                        voices.append(match.group(1))
+                    name = _voice_span_name(token)
+                    if name is not None:
+                        voices.append(name)
         return voices
+
+    @property
+    def voice_spans(self) -> list[VoiceSpan]:
+        """
+        Return the speaker of every range of the visible text, in order.
+
+        The spans cover the whole of `text`, in order and without gaps, so
+        joining ``text[span.start:span.end]`` of the spans gives back `text`
+        with its characters in the same order. A span whose voice is None
+        covers text outside every voice span, such as text before the first
+        one, text after one closes, or text in a caption without voice spans.
+
+        Unlike `voice`, which only reads a voice span at the start of the
+        first line, the speaker follows the voice spans through the text: a
+        voice span ends at its ``</v>`` tag, and closing a nested voice span
+        restores the speaker of the enclosing one. Each voice records the name
+        as written, so the same display name on two spans does not make them
+        the same person beyond the caption, as the name alone gives no
+        identity.
+        """
+        return _caption_voice_spans(self.lines)
 
 
 def _caption_lines(

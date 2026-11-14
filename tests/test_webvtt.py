@@ -2952,6 +2952,47 @@ class TestWebVTT(unittest.TestCase):
             )
         self.assertIsNone(vtt[0].voice)
 
+    def test_parse_voice_spans_by_text_range(self):
+        vtt = webvtt.from_string(textwrap.dedent("""
+            WEBVTT
+
+            00:00:00.000 --> 00:00:02.000
+            <v Bob>Hello <v Alice>there</v> old friend</v>
+            next line <v Bob>again</v>
+
+            00:00:02.000 --> 00:00:04.000
+            <v Bob>another cue</v>
+            """).strip()
+            )
+        caption = vtt[0]
+        self.assertEqual(
+            caption.text,
+            'Hello there old friend\nnext line again'
+            )
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                webvtt.VoiceSpan(0, 6, 'Bob'),
+                webvtt.VoiceSpan(6, 11, 'Alice'),
+                webvtt.VoiceSpan(11, 22, 'Bob'),
+                webvtt.VoiceSpan(22, 33, None),
+                webvtt.VoiceSpan(33, 38, 'Bob'),
+                ]
+            )
+        # the ranges join back into the visible text, in the same order
+        self.assertEqual(
+            ''.join(
+                caption.text[span.start:span.end]
+                for span in caption.voice_spans
+                ),
+            caption.text
+            )
+        # the same display name in another cue carries no cross-cue identity
+        self.assertEqual(
+            vtt[1].voice_spans,
+            [webvtt.VoiceSpan(0, len('another cue'), 'Bob')]
+            )
+
 
 class TestParseSRT(unittest.TestCase):
 

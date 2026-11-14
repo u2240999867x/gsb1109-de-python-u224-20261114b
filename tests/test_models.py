@@ -6,7 +6,7 @@ import unittest
 import unittest.mock
 
 from webvtt.models import (
-    Timestamp, Caption, CueSettings, ParseIssue, Region, Style
+    Timestamp, Caption, CueSettings, ParseIssue, Region, Style, VoiceSpan
     )
 from webvtt.errors import MalformedCaptionError, MalformedRegionError
 
@@ -1027,6 +1027,237 @@ class TestCaption(unittest.TestCase):
         caption.lines.append('<v Carol>Three</v>')
         self.assertEqual(caption.voices, ['Bob', 'Alice', 'Carol'])
 
+    def assertVoiceSpansCoverText(self, caption):
+        """Check the spans cover the visible text in order without gaps."""
+        spans = caption.voice_spans
+        if not caption.text:
+            self.assertEqual(spans, [])
+            return
+        self.assertEqual(spans[0].start, 0)
+        self.assertEqual(spans[-1].end, len(caption.text))
+        for earlier, later in zip(spans, spans[1:]):
+            self.assertEqual(earlier.end, later.start)
+        self.assertEqual(
+            ''.join(
+                caption.text[span.start:span.end] for span in spans
+                ),
+            caption.text
+            )
+
+    def test_voice_spans_multiple_speakers(self):
+        caption = Caption(text='<v Bob>Hi</v> <v Alice>Hello</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 2, 'Bob'),
+                VoiceSpan(2, 3, None),
+                VoiceSpan(3, 8, 'Alice'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_unmarked_text_has_no_voice(self):
+        caption = Caption(text='Intro <v Bob>talk</v> outro')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 6, None),
+                VoiceSpan(6, 10, 'Bob'),
+                VoiceSpan(10, 16, None),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_restore_enclosing_voice(self):
+        caption = Caption(
+            text='<v Bob>Hello <v Alice>there</v> back</v> done'
+            )
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 6, 'Bob'),
+                VoiceSpan(6, 11, 'Alice'),
+                VoiceSpan(11, 16, 'Bob'),
+                VoiceSpan(16, 21, None),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_restore_through_nested_spans(self):
+        caption = Caption(
+            text='<v A><v B><v C>deep</v>mid</v>outer</v>end'
+            )
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 4, 'C'),
+                VoiceSpan(4, 7, 'B'),
+                VoiceSpan(7, 12, 'A'),
+                VoiceSpan(12, 15, None),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_without_voice_spans(self):
+        for raw_text in ('Just plain text', '', '<b>only</b> tags'):
+            with self.subTest(raw_text=raw_text):
+                caption = Caption(text=raw_text)
+                expected = (
+                    [] if not caption.text
+                    else [VoiceSpan(0, len(caption.text), None)]
+                    )
+                self.assertEqual(caption.voice_spans, expected)
+                self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_follow_lines(self):
+        caption = Caption(text='<v Bob>One</v>\n<v Alice>Two</v>')
+        self.assertEqual(caption.text, 'One\nTwo')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 3, 'Bob'),
+                VoiceSpan(3, 4, None),
+                VoiceSpan(4, 7, 'Alice'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_newline_inside_a_span(self):
+        caption = Caption(text='<v Bob>line1\nline2</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [VoiceSpan(0, len(caption.text), 'Bob')]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_join_adjacent_same_voice(self):
+        caption = Caption(text='<v Bob>a</v><v Bob>b</v>')
+        self.assertEqual(caption.voices, ['Bob', 'Bob'])
+        self.assertEqual(
+            caption.voice_spans,
+            [VoiceSpan(0, 2, 'Bob')]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_keep_same_name_separated_by_another(self):
+        caption = Caption(text='<v Bob>a</v><v Alice>x</v><v Bob>b</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 1, 'Bob'),
+                VoiceSpan(1, 2, 'Alice'),
+                VoiceSpan(2, 3, 'Bob'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_keep_same_display_name_without_identity(self):
+        first = Caption(text='<v Bob>first cue</v>')
+        second = Caption(text='<v Bob>second cue</v>')
+        self.assertEqual(
+            first.voice_spans[0].voice,
+            second.voice_spans[0].voice
+            )
+        # the spans are per caption, nothing links the two speakers
+        self.assertIsNot(first.voice_spans[0], second.voice_spans[0])
+
+    def test_voice_spans_ignore_other_tags(self):
+        caption = Caption(
+            text='<v Bob>Hello <b>bold</b> <c.red>red</c> '
+                 '<00:00:01.000>moon</v> after'
+            )
+        spoken = 'Hello bold red moon'
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, len(spoken), 'Bob'),
+                VoiceSpan(len(spoken), len(caption.text), None),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_with_classes(self):
+        caption = Caption(
+            text='<v.quiet.slow Lisa Simpson>I am Lisa</v>'
+            )
+        self.assertEqual(
+            caption.voice_spans,
+            [VoiceSpan(0, 9, 'Lisa Simpson')]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_unclosed_span_runs_to_the_end(self):
+        caption = Caption(text='pre <v Bob>never closed')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 4, None),
+                VoiceSpan(4, 16, 'Bob'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_ignore_end_tags_without_a_span(self):
+        caption = Caption(text='</v> text <v Bob>x</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 6, None),
+                VoiceSpan(6, 7, 'Bob'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_invalid_voice_tag_is_not_a_voice(self):
+        caption = Caption(text='<v>noname</v> <v  >spaces</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [VoiceSpan(0, len(caption.text), None)]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_spans_empty_text(self):
+        self.assertEqual(Caption(text='<v Bob></v>').voice_spans, [])
+        self.assertEqual(Caption().voice_spans, [])
+
+    def test_voice_spans_follow_the_text(self):
+        caption = Caption(text='This is a test')
+        self.assertEqual(
+            caption.voice_spans,
+            [VoiceSpan(0, len('This is a test'), None)]
+            )
+        caption.text = ['<v Bob>One</v>', '<v Alice>Two</v>']
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 3, 'Bob'),
+                VoiceSpan(3, 4, None),
+                VoiceSpan(4, 7, 'Alice'),
+                ]
+            )
+        caption.lines.append('<v Carol>Three</v>')
+        self.assertEqual(
+            caption.voice_spans,
+            [
+                VoiceSpan(0, 3, 'Bob'),
+                VoiceSpan(3, 4, None),
+                VoiceSpan(4, 7, 'Alice'),
+                VoiceSpan(7, 8, None),
+                VoiceSpan(8, 13, 'Carol'),
+                ]
+            )
+        self.assertVoiceSpansCoverText(caption)
+
+    def test_voice_span_repr(self):
+        self.assertEqual(
+            str(VoiceSpan(0, 2, 'Bob')),
+            "0:2 'Bob'"
+            )
+        self.assertEqual(
+            str(VoiceSpan(2, 3, None)),
+            '2:3 None'
+            )
+
     def test_text_strips_tags_like_regex(self):
         for raw_text in (
             '<v Bob>Hello <b>test</b>!',
@@ -1093,6 +1324,18 @@ class TestLinearTime(unittest.TestCase):
             ('classes', '<v' + '.a' * n + '>', []),
             ('spans', '<v Bob>a' * (n // 10), ['Bob'] * (n // 10)),
             ), 'voices')
+
+    def test_voice_spans(self):
+        n = self.LENGTH
+        self.assertLinear((
+            ('whitespace', '<v' + ' ' * n + '>', []),
+            ('unclosed spans', '<v ' * n,
+             [VoiceSpan(0, len('<v ' * n), None)]),
+            ('one unclosed span', '<v Bob>' + 'a' * n,
+             [VoiceSpan(0, n, 'Bob')]),
+            ('spans of one voice', '<v Bob>a</v>' * (n // 12),
+             [VoiceSpan(0, n // 12, 'Bob')]),
+            ), 'voice_spans')
 
 
 class TestStyle(unittest.TestCase):

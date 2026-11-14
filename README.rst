@@ -31,6 +31,7 @@ Usage
       print(caption.text)        # cue payload
       print(caption.voice)       # cue voice span if any
       print(caption.voices)      # voices of every voice span in the text
+      print(caption.voice_spans) # speaker of each range of the visible text
 
 Writing captions
 ----------------

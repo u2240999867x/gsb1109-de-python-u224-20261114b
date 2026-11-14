@@ -27,6 +27,28 @@ Reading WebVTT caption files
     caption.voice   # 'Bob'
     caption.voices  # ['Bob', 'Alice']
 
+    # voice_spans gives the speaker of every range of the visible text, so a
+    # cue that changes speaker is not attributed as a whole to its first
+    # voice; a range with None is text outside every voice span
+    caption = webvtt.Caption(text='<v Bob>Hi</v> <v Alice>Hello</v>')
+    caption.text  # 'Hi Hello'
+    [
+        (span.voice, caption.text[span.start:span.end])
+        for span in caption.voice_spans
+        ]
+    # [('Bob', 'Hi'), (None, ' '), ('Alice', 'Hello')]
+
+    # closing a nested voice span restores the enclosing speaker, and the
+    # ranges join back into the text in the same order
+    caption = webvtt.Caption(
+        text='<v Bob>Hello <v Alice>there</v> back</v> done'
+        )
+    [
+        (span.voice, caption.text[span.start:span.end])
+        for span in caption.voice_spans
+        ]
+    # [('Bob', 'Hello '), ('Alice', 'there'), ('Bob', ' back'), (None, ' done')]
+
     # the caption text is returned clean without cue tags,
     # the raw text of a caption is available in raw_text
     vtt[0].text      # 'This is a caption text'

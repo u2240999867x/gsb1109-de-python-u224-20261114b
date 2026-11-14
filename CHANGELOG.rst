@@ -1,6 +1,13 @@
 History
 =======
 
+0.8.1 (unreleased)
+------------------
+
+Changes:
+
+* Added ``Caption.voice_spans`` and the ``VoiceSpan`` model, which give the speaker of every range of the visible text of a caption, in order and without gaps, instead of only the voice span at its start. Closing a nested voice span restores the enclosing speaker, text outside every voice span is recorded with no speaker, and the same display name is only the name as written, not an identity shared across captions
+
 0.8.0 (08-11-2026)
 ------------------
 

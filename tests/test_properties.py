@@ -148,3 +148,22 @@ class TestText(unittest.TestCase):
     def test_text_strips_tags_like_regex(self, line):
         self.assertEqual(Caption(text=line).text,
                          re.sub('<.*?>', '', line))
+
+    @untimed
+    @given(st.text(st.sampled_from('<>/ab v.\t\n')))
+    def test_voice_spans_cover_the_text_in_order(self, line):
+        caption = Caption(text=line)
+        spans = caption.voice_spans
+        if not caption.text:
+            self.assertEqual(spans, [])
+            return
+        self.assertEqual(spans[0].start, 0)
+        self.assertEqual(spans[-1].end, len(caption.text))
+        for earlier, later in zip(spans, spans[1:]):
+            # the ranges are contiguous and adjacent ones differ in speaker
+            self.assertEqual(earlier.end, later.start)
+            self.assertNotEqual(earlier.voice, later.voice)
+        self.assertEqual(
+            ''.join(caption.text[span.start:span.end] for span in spans),
+            caption.text
+            )
