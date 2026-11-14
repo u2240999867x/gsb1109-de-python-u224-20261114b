@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>示范法规页</title>
+  <link rel="stylesheet" href="regulation.css">
+</head>
+<body>
+  <h1>示范法规</h1>
+
+  <section class="chapter" id="chapter-1">
+    <h2>第一章 总则</h2>
+
+    <article class="clause" id="art-1">
+      <p>为规范计数而制定本规。</p>
+    </article>
+
+    <article class="clause" id="art-2">
+      <p>本条含倒序子款清单。</p>
+      <ol class="sub reversed-with-start">
+        <li>子款甲</li>
+        <li>子款乙</li>
+        <li>子款丙</li>
+      </ol>
+      <ol class="sub reversed-default">
+        <li>无初值子款一</li>
+        <li>无初值子款二</li>
+        <li>无初值子款三</li>
+        <li>无初值子款四</li>
+      </ol>
+      <span class="note">注一</span>
+      <span class="note">注二</span>
+    </article>
+
+    <article class="clause" id="art-3">
+      <p>正文节点里没有“第 2.3 条”这几个字，它由 ::before 生成。</p>
+    </article>
+  </section>
+
+  <section class="chapter" id="chapter-2">
+    <h2>第二章 附则</h2>
+
+    <article class="clause renumbered" id="art-4">
+      <p>外层 chapter 计数器在本章继续累加；clause 用 counter-set 指定。</p>
+    </article>
+
+    <article class="clause" id="art-5">
+      <p>末条。</p>
+    </article>
+  </section>
+</body>
+</html>

@@ -1,0 +1,3340 @@
+{
+  "node_tree": {
+    "tag": "html",
+    "doc_id": 0,
+    "path": "/html",
+    "source": {
+      "line": 2,
+      "column": 1
+    },
+    "attributes": {
+      "lang": "zh"
+    },
+    "children": [
+      {
+        "node": "#text",
+        "doc_id": 1,
+        "data": "\n"
+      },
+      {
+        "tag": "head",
+        "doc_id": 2,
+        "path": "/html/head",
+        "source": {
+          "line": 3,
+          "column": 1
+        },
+        "attributes": {},
+        "children": [
+          {
+            "node": "#text",
+            "doc_id": 3,
+            "data": "\n  "
+          },
+          {
+            "tag": "meta",
+            "doc_id": 4,
+            "path": "/html/head/meta",
+            "source": {
+              "line": 4,
+              "column": 3
+            },
+            "attributes": {
+              "charset": "utf-8"
+            },
+            "children": []
+          },
+          {
+            "node": "#text",
+            "doc_id": 5,
+            "data": "\n  "
+          },
+          {
+            "tag": "title",
+            "doc_id": 6,
+            "path": "/html/head/title",
+            "source": {
+              "line": 5,
+              "column": 3
+            },
+            "attributes": {},
+            "children": [
+              {
+                "node": "#text",
+                "doc_id": 7,
+                "data": "示范法规页"
+              }
+            ]
+          },
+          {
+            "node": "#text",
+            "doc_id": 8,
+            "data": "\n  "
+          },
+          {
+            "tag": "link",
+            "doc_id": 9,
+            "path": "/html/head/link",
+            "source": {
+              "line": 6,
+              "column": 3
+            },
+            "attributes": {
+              "rel": "stylesheet",
+              "href": "regulation.css"
+            },
+            "children": []
+          },
+          {
+            "node": "#text",
+            "doc_id": 10,
+            "data": "\n"
+          }
+        ]
+      },
+      {
+        "node": "#text",
+        "doc_id": 11,
+        "data": "\n"
+      },
+      {
+        "tag": "body",
+        "doc_id": 12,
+        "path": "/html/body",
+        "source": {
+          "line": 8,
+          "column": 1
+        },
+        "attributes": {},
+        "children": [
+          {
+            "node": "#text",
+            "doc_id": 13,
+            "data": "\n  "
+          },
+          {
+            "tag": "h1",
+            "doc_id": 14,
+            "path": "/html/body/h1",
+            "source": {
+              "line": 9,
+              "column": 3
+            },
+            "attributes": {},
+            "children": [
+              {
+                "node": "#text",
+                "doc_id": 15,
+                "data": "示范法规"
+              }
+            ]
+          },
+          {
+            "node": "#text",
+            "doc_id": 16,
+            "data": "\n\n  "
+          },
+          {
+            "tag": "section",
+            "doc_id": 17,
+            "path": "/html/body/section[1]",
+            "source": {
+              "line": 11,
+              "column": 3
+            },
+            "attributes": {
+              "class": "chapter",
+              "id": "chapter-1"
+            },
+            "children": [
+              {
+                "node": "#text",
+                "doc_id": 18,
+                "data": "\n    "
+              },
+              {
+                "tag": "h2",
+                "doc_id": 19,
+                "path": "/html/body/section[1]/h2",
+                "source": {
+                  "line": 12,
+                  "column": 5
+                },
+                "attributes": {},
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 20,
+                    "data": "第一章 总则"
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 21,
+                "data": "\n\n    "
+              },
+              {
+                "tag": "article",
+                "doc_id": 22,
+                "path": "/html/body/section[1]/article[1]",
+                "source": {
+                  "line": 14,
+                  "column": 5
+                },
+                "attributes": {
+                  "class": "clause",
+                  "id": "art-1"
+                },
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 23,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "p",
+                    "doc_id": 24,
+                    "path": "/html/body/section[1]/article[1]/p",
+                    "source": {
+                      "line": 15,
+                      "column": 7
+                    },
+                    "attributes": {},
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 25,
+                        "data": "为规范计数而制定本规。"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 26,
+                    "data": "\n    "
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 27,
+                "data": "\n\n    "
+              },
+              {
+                "tag": "article",
+                "doc_id": 28,
+                "path": "/html/body/section[1]/article[2]",
+                "source": {
+                  "line": 18,
+                  "column": 5
+                },
+                "attributes": {
+                  "class": "clause",
+                  "id": "art-2"
+                },
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 29,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "p",
+                    "doc_id": 30,
+                    "path": "/html/body/section[1]/article[2]/p",
+                    "source": {
+                      "line": 19,
+                      "column": 7
+                    },
+                    "attributes": {},
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 31,
+                        "data": "本条含倒序子款清单。"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 32,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "ol",
+                    "doc_id": 33,
+                    "path": "/html/body/section[1]/article[2]/ol[1]",
+                    "source": {
+                      "line": 20,
+                      "column": 7
+                    },
+                    "attributes": {
+                      "class": "sub reversed-with-start"
+                    },
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 34,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 35,
+                        "path": "/html/body/section[1]/article[2]/ol[1]/li[1]",
+                        "source": {
+                          "line": 21,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 36,
+                            "data": "子款甲"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 37,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 38,
+                        "path": "/html/body/section[1]/article[2]/ol[1]/li[2]",
+                        "source": {
+                          "line": 22,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 39,
+                            "data": "子款乙"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 40,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 41,
+                        "path": "/html/body/section[1]/article[2]/ol[1]/li[3]",
+                        "source": {
+                          "line": 23,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 42,
+                            "data": "子款丙"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 43,
+                        "data": "\n      "
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 44,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "ol",
+                    "doc_id": 45,
+                    "path": "/html/body/section[1]/article[2]/ol[2]",
+                    "source": {
+                      "line": 25,
+                      "column": 7
+                    },
+                    "attributes": {
+                      "class": "sub reversed-default"
+                    },
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 46,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 47,
+                        "path": "/html/body/section[1]/article[2]/ol[2]/li[1]",
+                        "source": {
+                          "line": 26,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 48,
+                            "data": "无初值子款一"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 49,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 50,
+                        "path": "/html/body/section[1]/article[2]/ol[2]/li[2]",
+                        "source": {
+                          "line": 27,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 51,
+                            "data": "无初值子款二"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 52,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 53,
+                        "path": "/html/body/section[1]/article[2]/ol[2]/li[3]",
+                        "source": {
+                          "line": 28,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 54,
+                            "data": "无初值子款三"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 55,
+                        "data": "\n        "
+                      },
+                      {
+                        "tag": "li",
+                        "doc_id": 56,
+                        "path": "/html/body/section[1]/article[2]/ol[2]/li[4]",
+                        "source": {
+                          "line": 29,
+                          "column": 9
+                        },
+                        "attributes": {},
+                        "children": [
+                          {
+                            "node": "#text",
+                            "doc_id": 57,
+                            "data": "无初值子款四"
+                          }
+                        ]
+                      },
+                      {
+                        "node": "#text",
+                        "doc_id": 58,
+                        "data": "\n      "
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 59,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "span",
+                    "doc_id": 60,
+                    "path": "/html/body/section[1]/article[2]/span[1]",
+                    "source": {
+                      "line": 31,
+                      "column": 7
+                    },
+                    "attributes": {
+                      "class": "note"
+                    },
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 61,
+                        "data": "注一"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 62,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "span",
+                    "doc_id": 63,
+                    "path": "/html/body/section[1]/article[2]/span[2]",
+                    "source": {
+                      "line": 32,
+                      "column": 7
+                    },
+                    "attributes": {
+                      "class": "note"
+                    },
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 64,
+                        "data": "注二"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 65,
+                    "data": "\n    "
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 66,
+                "data": "\n\n    "
+              },
+              {
+                "tag": "article",
+                "doc_id": 67,
+                "path": "/html/body/section[1]/article[3]",
+                "source": {
+                  "line": 35,
+                  "column": 5
+                },
+                "attributes": {
+                  "class": "clause",
+                  "id": "art-3"
+                },
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 68,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "p",
+                    "doc_id": 69,
+                    "path": "/html/body/section[1]/article[3]/p",
+                    "source": {
+                      "line": 36,
+                      "column": 7
+                    },
+                    "attributes": {},
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 70,
+                        "data": "正文节点里没有“第 2.3 条”这几个字，它由 ::before 生成。"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 71,
+                    "data": "\n    "
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 72,
+                "data": "\n  "
+              }
+            ]
+          },
+          {
+            "node": "#text",
+            "doc_id": 73,
+            "data": "\n\n  "
+          },
+          {
+            "tag": "section",
+            "doc_id": 74,
+            "path": "/html/body/section[2]",
+            "source": {
+              "line": 40,
+              "column": 3
+            },
+            "attributes": {
+              "class": "chapter",
+              "id": "chapter-2"
+            },
+            "children": [
+              {
+                "node": "#text",
+                "doc_id": 75,
+                "data": "\n    "
+              },
+              {
+                "tag": "h2",
+                "doc_id": 76,
+                "path": "/html/body/section[2]/h2",
+                "source": {
+                  "line": 41,
+                  "column": 5
+                },
+                "attributes": {},
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 77,
+                    "data": "第二章 附则"
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 78,
+                "data": "\n\n    "
+              },
+              {
+                "tag": "article",
+                "doc_id": 79,
+                "path": "/html/body/section[2]/article[1]",
+                "source": {
+                  "line": 43,
+                  "column": 5
+                },
+                "attributes": {
+                  "class": "clause renumbered",
+                  "id": "art-4"
+                },
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 80,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "p",
+                    "doc_id": 81,
+                    "path": "/html/body/section[2]/article[1]/p",
+                    "source": {
+                      "line": 44,
+                      "column": 7
+                    },
+                    "attributes": {},
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 82,
+                        "data": "外层 chapter 计数器在本章继续累加；clause 用 counter-set 指定。"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 83,
+                    "data": "\n    "
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 84,
+                "data": "\n\n    "
+              },
+              {
+                "tag": "article",
+                "doc_id": 85,
+                "path": "/html/body/section[2]/article[2]",
+                "source": {
+                  "line": 47,
+                  "column": 5
+                },
+                "attributes": {
+                  "class": "clause",
+                  "id": "art-5"
+                },
+                "children": [
+                  {
+                    "node": "#text",
+                    "doc_id": 86,
+                    "data": "\n      "
+                  },
+                  {
+                    "tag": "p",
+                    "doc_id": 87,
+                    "path": "/html/body/section[2]/article[2]/p",
+                    "source": {
+                      "line": 48,
+                      "column": 7
+                    },
+                    "attributes": {},
+                    "children": [
+                      {
+                        "node": "#text",
+                        "doc_id": 88,
+                        "data": "末条。"
+                      }
+                    ]
+                  },
+                  {
+                    "node": "#text",
+                    "doc_id": 89,
+                    "data": "\n    "
+                  }
+                ]
+              },
+              {
+                "node": "#text",
+                "doc_id": 90,
+                "data": "\n  "
+              }
+            ]
+          },
+          {
+            "node": "#text",
+            "doc_id": 91,
+            "data": "\n"
+          }
+        ]
+      },
+      {
+        "node": "#text",
+        "doc_id": 92,
+        "data": "\n"
+      }
+    ]
+  },
+  "tinycss2_parse": {
+    "top_level_node_types": [
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule",
+      "qualified-rule"
+    ],
+    "serialized_rules": [
+      "body {\n  counter-reset: chapter note;\n}",
+      ".chapter {\n  counter-increment: chapter;\n  counter-reset: clause;\n}",
+      ".chapter .clause {\n  counter-increment: clause;\n}",
+      ".clause.renumbered {\n  counter-set: clause 5;\n  counter-increment: clause 0;\n}",
+      ".clause::before {\n  content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\";\n}",
+      ".clause::after {\n  content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\";\n}",
+      ".note {\n  counter-increment: note;\n}",
+      "ol.reversed-with-start {\n  counter-reset: reversed(item 3);\n}",
+      "ol.reversed-default {\n  counter-reset: reversed(item);\n}",
+      "ol.sub > li {\n  counter-increment: item -1;\n}",
+      "ol.sub > li::before {\n  content: \"(\" counter(item, lower-alpha) \") \";\n}"
+    ],
+    "parse_errors": []
+  },
+  "matched_declarations": {
+    "/html/body": [
+      {
+        "property": "counter-reset",
+        "css_text": "counter-reset: chapter note",
+        "selector": "body",
+        "css_line": 4,
+        "specificity": [
+          0,
+          0,
+          1
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: chapter",
+        "selector": ".chapter",
+        "css_line": 8,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      },
+      {
+        "property": "counter-reset",
+        "css_text": "counter-reset: clause",
+        "selector": ".chapter",
+        "css_line": 9,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause",
+        "selector": ".chapter .clause",
+        "css_line": 13,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[1]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+        "selector": ".clause::before",
+        "css_line": 22,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[1]::after": [
+      {
+        "property": "content",
+        "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+        "selector": ".clause::after",
+        "css_line": 27,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause",
+        "selector": ".chapter .clause",
+        "css_line": 13,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+        "selector": ".clause::before",
+        "css_line": 22,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]::after": [
+      {
+        "property": "content",
+        "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+        "selector": ".clause::after",
+        "css_line": 27,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]": [
+      {
+        "property": "counter-reset",
+        "css_text": "counter-reset: reversed(item 3)",
+        "selector": "ol.reversed-with-start",
+        "css_line": 37,
+        "specificity": [
+          0,
+          1,
+          1
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[1]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[2]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[3]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[1]/li[3]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]": [
+      {
+        "property": "counter-reset",
+        "css_text": "counter-reset: reversed(item)",
+        "selector": "ol.reversed-default",
+        "css_line": 42,
+        "specificity": [
+          0,
+          1,
+          1
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[1]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[2]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[3]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[3]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[4]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: item -1",
+        "selector": "ol.sub > li",
+        "css_line": 46,
+        "specificity": [
+          0,
+          1,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/ol[2]/li[4]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+        "selector": "ol.sub > li::before",
+        "css_line": 50,
+        "specificity": [
+          0,
+          2,
+          2
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/span[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: note",
+        "selector": ".note",
+        "css_line": 32,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[2]/span[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: note",
+        "selector": ".note",
+        "css_line": 32,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[3]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause",
+        "selector": ".chapter .clause",
+        "css_line": 13,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[3]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+        "selector": ".clause::before",
+        "css_line": 22,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[1]/article[3]::after": [
+      {
+        "property": "content",
+        "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+        "selector": ".clause::after",
+        "css_line": 27,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: chapter",
+        "selector": ".chapter",
+        "css_line": 8,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      },
+      {
+        "property": "counter-reset",
+        "css_text": "counter-reset: clause",
+        "selector": ".chapter",
+        "css_line": 9,
+        "specificity": [
+          0,
+          1,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[1]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause",
+        "selector": ".chapter .clause",
+        "css_line": 13,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      },
+      {
+        "property": "counter-set",
+        "css_text": "counter-set: clause 5",
+        "selector": ".clause.renumbered",
+        "css_line": 17,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      },
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause 0",
+        "selector": ".clause.renumbered",
+        "css_line": 18,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[1]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+        "selector": ".clause::before",
+        "css_line": 22,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[1]::after": [
+      {
+        "property": "content",
+        "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+        "selector": ".clause::after",
+        "css_line": 27,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[2]": [
+      {
+        "property": "counter-increment",
+        "css_text": "counter-increment: clause",
+        "selector": ".chapter .clause",
+        "css_line": 13,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[2]::before": [
+      {
+        "property": "content",
+        "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+        "selector": ".clause::before",
+        "css_line": 22,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ],
+    "/html/body/section[2]/article[2]::after": [
+      {
+        "property": "content",
+        "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+        "selector": ".clause::after",
+        "css_line": 27,
+        "specificity": [
+          0,
+          2,
+          0
+        ],
+        "important": false
+      }
+    ]
+  },
+  "counter_read_points": [
+    {
+      "anchor": "/html::before",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head::before",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/meta::before",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/meta::after",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/title::before",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/title::after",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/link::before",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head/link::after",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/head::after",
+      "counters": {}
+    },
+    {
+      "anchor": "/html/body::before",
+      "counters": {
+        "chapter": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/h1::before",
+      "counters": {
+        "chapter": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/h1::after",
+      "counters": {
+        "chapter": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/h2::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/h2::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[1]/p::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[1]/p::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/p::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/p::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          3
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          3
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[2]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[2]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[3]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[3]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          4
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          4
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          3
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[2]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          3
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[2]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[3]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          2
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[3]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[4]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          1
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[4]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/ol[2]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "item": [
+          0
+        ],
+        "note": [
+          0
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/span[1]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          1
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/span[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          1
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/span[2]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]/span[2]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[2]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          2
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[3]::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          3
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[3]/p::before",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          3
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[3]/p::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          3
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]/article[3]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          3
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[1]::after",
+      "counters": {
+        "chapter": [
+          1
+        ],
+        "clause": [
+          3
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/h2::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/h2::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          0
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[1]::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          5
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[1]/p::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          5
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[1]/p::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          5
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[1]::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          5
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[2]::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          6
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[2]/p::before",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          6
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[2]/p::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          6
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]/article[2]::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          6
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body/section[2]::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "clause": [
+          6
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html/body::after",
+      "counters": {
+        "chapter": [
+          2
+        ],
+        "note": [
+          2
+        ]
+      }
+    },
+    {
+      "anchor": "/html::after",
+      "counters": {}
+    }
+  ],
+  "labels": [
+    {
+      "text": "第 1.1 条（note=0）",
+      "anchor": "/html/body/section[1]/article[1]::before",
+      "node_id": "art-1",
+      "tag": "article",
+      "pseudo": "before",
+      "source": {
+        "line": 14,
+        "column": 5
+      },
+      "node_doc_id": 22,
+      "identity_key": "html/body/#chapter-1/#art-1::before",
+      "counters": {
+        "chapter": 1,
+        "clause": 1,
+        "note": 0
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+          "selector": ".clause::before",
+          "pseudo": "before",
+          "css_line": 22,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": " [尾标 1.1；note=0]",
+      "anchor": "/html/body/section[1]/article[1]::after",
+      "node_id": "art-1",
+      "tag": "article",
+      "pseudo": "after",
+      "source": {
+        "line": 14,
+        "column": 5
+      },
+      "node_doc_id": 22,
+      "identity_key": "html/body/#chapter-1/#art-1::after",
+      "counters": {
+        "chapter": 1,
+        "clause": 1,
+        "note": 0
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+          "selector": ".clause::after",
+          "pseudo": "after",
+          "css_line": 27,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "第 1.2 条（note=0）",
+      "anchor": "/html/body/section[1]/article[2]::before",
+      "node_id": "art-2",
+      "tag": "article",
+      "pseudo": "before",
+      "source": {
+        "line": 18,
+        "column": 5
+      },
+      "node_doc_id": 28,
+      "identity_key": "html/body/#chapter-1/#art-2::before",
+      "counters": {
+        "chapter": 1,
+        "clause": 2,
+        "note": 0
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+          "selector": ".clause::before",
+          "pseudo": "before",
+          "css_line": 22,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(c) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[1]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 21,
+        "column": 9
+      },
+      "node_doc_id": 35,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:子款甲::before",
+      "counters": {
+        "item": 3
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item 3)",
+          "selector": "ol.reversed-with-start",
+          "pseudo": null,
+          "css_line": 37,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(b) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[2]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 22,
+        "column": 9
+      },
+      "node_doc_id": 38,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:子款乙::before",
+      "counters": {
+        "item": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item 3)",
+          "selector": "ol.reversed-with-start",
+          "pseudo": null,
+          "css_line": 37,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(a) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[1]/li[3]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 23,
+        "column": 9
+      },
+      "node_doc_id": 41,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:子款丙::before",
+      "counters": {
+        "item": 1
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item 3)",
+          "selector": "ol.reversed-with-start",
+          "pseudo": null,
+          "css_line": 37,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(d) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[1]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 26,
+        "column": 9
+      },
+      "node_doc_id": 47,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款一::before",
+      "counters": {
+        "item": 4
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item)",
+          "selector": "ol.reversed-default",
+          "pseudo": null,
+          "css_line": 42,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(c) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[2]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 27,
+        "column": 9
+      },
+      "node_doc_id": 50,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款二::before",
+      "counters": {
+        "item": 3
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item)",
+          "selector": "ol.reversed-default",
+          "pseudo": null,
+          "css_line": 42,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(b) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[3]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 28,
+        "column": 9
+      },
+      "node_doc_id": 53,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款三::before",
+      "counters": {
+        "item": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item)",
+          "selector": "ol.reversed-default",
+          "pseudo": null,
+          "css_line": 42,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "(a) ",
+      "anchor": "/html/body/section[1]/article[2]/ol[2]/li[4]::before",
+      "node_id": null,
+      "tag": "li",
+      "pseudo": "before",
+      "source": {
+        "line": 29,
+        "column": 9
+      },
+      "node_doc_id": 56,
+      "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款四::before",
+      "counters": {
+        "item": 1
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"(\" counter(item, lower-alpha) \") \"",
+          "selector": "ol.sub > li::before",
+          "pseudo": "before",
+          "css_line": 50,
+          "specificity": [
+            0,
+            2,
+            2
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: reversed(item)",
+          "selector": "ol.reversed-default",
+          "pseudo": null,
+          "css_line": 42,
+          "specificity": [
+            0,
+            1,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": " [尾标 1.2；note=2]",
+      "anchor": "/html/body/section[1]/article[2]::after",
+      "node_id": "art-2",
+      "tag": "article",
+      "pseudo": "after",
+      "source": {
+        "line": 18,
+        "column": 5
+      },
+      "node_doc_id": 28,
+      "identity_key": "html/body/#chapter-1/#art-2::after",
+      "counters": {
+        "chapter": 1,
+        "clause": 2,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+          "selector": ".clause::after",
+          "pseudo": "after",
+          "css_line": 27,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "第 1.3 条（note=2）",
+      "anchor": "/html/body/section[1]/article[3]::before",
+      "node_id": "art-3",
+      "tag": "article",
+      "pseudo": "before",
+      "source": {
+        "line": 35,
+        "column": 5
+      },
+      "node_doc_id": 67,
+      "identity_key": "html/body/#chapter-1/#art-3::before",
+      "counters": {
+        "chapter": 1,
+        "clause": 3,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+          "selector": ".clause::before",
+          "pseudo": "before",
+          "css_line": 22,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": " [尾标 1.3；note=2]",
+      "anchor": "/html/body/section[1]/article[3]::after",
+      "node_id": "art-3",
+      "tag": "article",
+      "pseudo": "after",
+      "source": {
+        "line": 35,
+        "column": 5
+      },
+      "node_doc_id": 67,
+      "identity_key": "html/body/#chapter-1/#art-3::after",
+      "counters": {
+        "chapter": 1,
+        "clause": 3,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+          "selector": ".clause::after",
+          "pseudo": "after",
+          "css_line": 27,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "第 2.5 条（note=2）",
+      "anchor": "/html/body/section[2]/article[1]::before",
+      "node_id": "art-4",
+      "tag": "article",
+      "pseudo": "before",
+      "source": {
+        "line": 43,
+        "column": 5
+      },
+      "node_doc_id": 79,
+      "identity_key": "html/body/#chapter-2/#art-4::before",
+      "counters": {
+        "chapter": 2,
+        "clause": 5,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+          "selector": ".clause::before",
+          "pseudo": "before",
+          "css_line": 22,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": " [尾标 2.5；note=2]",
+      "anchor": "/html/body/section[2]/article[1]::after",
+      "node_id": "art-4",
+      "tag": "article",
+      "pseudo": "after",
+      "source": {
+        "line": 43,
+        "column": 5
+      },
+      "node_doc_id": 79,
+      "identity_key": "html/body/#chapter-2/#art-4::after",
+      "counters": {
+        "chapter": 2,
+        "clause": 5,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+          "selector": ".clause::after",
+          "pseudo": "after",
+          "css_line": 27,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": "第 2.6 条（note=2）",
+      "anchor": "/html/body/section[2]/article[2]::before",
+      "node_id": "art-5",
+      "tag": "article",
+      "pseudo": "before",
+      "source": {
+        "line": 47,
+        "column": 5
+      },
+      "node_doc_id": 85,
+      "identity_key": "html/body/#chapter-2/#art-5::before",
+      "counters": {
+        "chapter": 2,
+        "clause": 6,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \"第 \" counter(chapter) \".\" counter(clause) \" 条\"\n           \"（note=\" counter(note) \"）\"",
+          "selector": ".clause::before",
+          "pseudo": "before",
+          "css_line": 22,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    },
+    {
+      "text": " [尾标 2.6；note=2]",
+      "anchor": "/html/body/section[2]/article[2]::after",
+      "node_id": "art-5",
+      "tag": "article",
+      "pseudo": "after",
+      "source": {
+        "line": 47,
+        "column": 5
+      },
+      "node_doc_id": 85,
+      "identity_key": "html/body/#chapter-2/#art-5::after",
+      "counters": {
+        "chapter": 2,
+        "clause": 6,
+        "note": 2
+      },
+      "in_dom_text": false,
+      "evidence_sources": [
+        "style"
+      ],
+      "evidence": [
+        {
+          "property": "content",
+          "css_text": "content: \" [尾标 \" counters(chapter, \".\") \".\" counter(clause)\n           \"；note=\" counter(note) \"]\"",
+          "selector": ".clause::after",
+          "pseudo": "after",
+          "css_line": 27,
+          "specificity": [
+            0,
+            2,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-increment",
+          "css_text": "counter-increment: chapter",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 8,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: clause",
+          "selector": ".chapter",
+          "pseudo": null,
+          "css_line": 9,
+          "specificity": [
+            0,
+            1,
+            0
+          ],
+          "important": false
+        },
+        {
+          "property": "counter-reset",
+          "css_text": "counter-reset: chapter note",
+          "selector": "body",
+          "pseudo": null,
+          "css_line": 4,
+          "specificity": [
+            0,
+            0,
+            1
+          ],
+          "important": false
+        }
+      ]
+    }
+  ],
+  "edit_scenario": {
+    "description": "删除 reversed-default 清单中的一个子款",
+    "diff": {
+      "unchanged": [
+        "/html/body/section[1]/article[1]::before",
+        "/html/body/section[1]/article[1]::after",
+        "/html/body/section[1]/article[2]::before",
+        "/html/body/section[1]/article[2]/ol[1]/li[1]::before",
+        "/html/body/section[1]/article[2]/ol[1]/li[2]::before",
+        "/html/body/section[1]/article[2]/ol[1]/li[3]::before",
+        "/html/body/section[1]/article[2]::after",
+        "/html/body/section[1]/article[3]::before",
+        "/html/body/section[1]/article[3]::after",
+        "/html/body/section[2]/article[1]::before",
+        "/html/body/section[2]/article[1]::after",
+        "/html/body/section[2]/article[2]::before",
+        "/html/body/section[2]/article[2]::after"
+      ],
+      "changed": [
+        {
+          "anchor": "/html/body/section[1]/article[2]/ol[2]/li[1]::before",
+          "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款一::before",
+          "kind": "changed",
+          "old_text": "(d) ",
+          "new_text": "(c) ",
+          "old_counters": {
+            "item": 4
+          },
+          "new_counters": {
+            "item": 3
+          },
+          "causes": [
+            "counter-value"
+          ],
+          "style_only": true
+        },
+        {
+          "anchor": "/html/body/section[1]/article[2]/ol[2]/li[2]::before",
+          "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款二::before",
+          "kind": "changed",
+          "old_text": "(c) ",
+          "new_text": "(b) ",
+          "old_counters": {
+            "item": 3
+          },
+          "new_counters": {
+            "item": 2
+          },
+          "causes": [
+            "counter-value"
+          ],
+          "style_only": true
+        },
+        {
+          "anchor": "/html/body/section[1]/article[2]/ol[2]/li[3]::before",
+          "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款三::before",
+          "kind": "changed",
+          "old_text": "(b) ",
+          "new_text": "(a) ",
+          "old_counters": {
+            "item": 2
+          },
+          "new_counters": {
+            "item": 1
+          },
+          "causes": [
+            "counter-value"
+          ],
+          "style_only": true
+        }
+      ],
+      "added": [],
+      "removed": [
+        {
+          "anchor": "/html/body/section[1]/article[2]/ol[2]/li[4]::before",
+          "identity_key": "html/body/#chapter-1/#art-2/ol/li:无初值子款四::before",
+          "kind": "removed",
+          "old_text": "(a) ",
+          "new_text": null,
+          "old_counters": {
+            "item": 1
+          },
+          "new_counters": {},
+          "causes": [],
+          "style_only": true
+        }
+      ]
+    },
+    "style_evidence_only_anchors": [
+      "/html/body/section[1]/article[2]/ol[2]/li[1]::before",
+      "/html/body/section[1]/article[2]/ol[2]/li[2]::before",
+      "/html/body/section[1]/article[2]/ol[2]/li[3]::before"
+    ]
+  }
+}

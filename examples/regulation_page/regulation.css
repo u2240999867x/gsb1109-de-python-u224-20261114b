@@ -1,0 +1,51 @@
+/* 法规条款编号样式：条款文字全部由伪元素生成，正文节点不含编号。 */
+
+body {
+  counter-reset: chapter note;
+}
+
+.chapter {
+  counter-increment: chapter;
+  counter-reset: clause;
+}
+
+.chapter .clause {
+  counter-increment: clause;
+}
+
+.clause.renumbered {
+  counter-set: clause 5;
+  counter-increment: clause 0;
+}
+
+.clause::before {
+  content: "第 " counter(chapter) "." counter(clause) " 条"
+           "（note=" counter(note) "）";
+}
+
+.clause::after {
+  content: " [尾标 " counters(chapter, ".") "." counter(clause)
+           "；note=" counter(note) "]";
+}
+
+.note {
+  counter-increment: note;
+}
+
+/* 内层倒序清单：给定初值 3，逐项 -1。 */
+ol.reversed-with-start {
+  counter-reset: reversed(item 3);
+}
+
+/* 内层倒序清单：缺初值，由本作用域内有效条目数决定。 */
+ol.reversed-default {
+  counter-reset: reversed(item);
+}
+
+ol.sub > li {
+  counter-increment: item -1;
+}
+
+ol.sub > li::before {
+  content: "(" counter(item, lower-alpha) ") ";
+}
