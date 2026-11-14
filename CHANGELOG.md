@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `pystac.provenance.trace_provenance` for tracing `derived_from` link graphs into an auditable source list with root source counts, per-source reference counts, unresolved links and cyclic relationships
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed
