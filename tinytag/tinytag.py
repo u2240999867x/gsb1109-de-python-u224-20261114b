@@ -113,6 +113,8 @@ class TinyTag:
         self.images = Images()
         self.other = OtherFields()
 
+        self._comment_candidates: list[Comment] = []
+        self._comment_offset_base = 0
         self._filehandler: BinaryIO | None = None
         self._default_encoding: str | None = None  # override for some formats
         self._parse_duration = True
@@ -180,6 +182,78 @@ class TinyTag:
         extension."""
         filename_str = fsdecode(filename)
         return cls._get_parser_for_filename(filename_str) is not None
+
+    @property
+    def comment_candidates(self) -> list[Comment]:
+        """All comment values found in the file, in file order.
+
+        Returns a copy; the raw bytes and metadata of every candidate are
+        preserved so an import can be traced back to the file.
+        """
+        return list(self._comment_candidates)
+
+    def comment_view(
+        self,
+        language: str | tuple[str, ...] | list[str] | None = None,
+        description: str | tuple[str, ...] | list[str] | None = None,
+        source: str | tuple[str, ...] | list[str] | None = None
+    ) -> CommentView:
+        """Select the comment to display for the given preferences.
+
+        ``language``, ``description`` and ``source`` accept a single value or
+        an ordered list of values; the first matching candidate wins.  A
+        source can be ``'id3v1'``, ``'id3v2'``, a finer value such as
+        ``'id3v2.3'``, or a format-specific source (e.g. ``'vorbis'``).
+
+        A candidate that matches no requested value is not discarded; it is
+        ranked after the matching ones and ``matched`` is false, so the
+        caller can see that its preference was not available instead of
+        receiving a value that looks like an exact match.
+
+        If the file contains different readings of the same comment and no
+        preference distinguishes them, ``selected`` is ``None`` and
+        ``ambiguous`` is true.  Check ``candidates`` to decide which reading
+        to use.  When only the tag version is undecided (e.g. ID3v1.0 vs.
+        ID3v1.1 producing the same text), ``selected`` is kept and
+        ``version_ambiguous`` is true.
+        """
+        view = CommentView.select(
+            self._comment_candidates,
+            language=language,
+            description=description,
+            source=source)
+        return view
+
+    def _add_comment_candidate(self, candidate: Comment) -> None:
+        if candidate.offset is not None:
+            local_offset = candidate.offset
+            candidate.offset += self._comment_offset_base
+            for key in ('content_bytes', 'comment_field', 'text_bytes',
+                        'terminator', 'track_bytes', 'padding_bytes'):
+                value = candidate.evidence.get(key)
+                if isinstance(value, int):
+                    candidate.evidence[key] = value + self._comment_offset_base
+                elif isinstance(value, list) and len(value) == 2:
+                    candidate.evidence[key] = [
+                        int(value[0]) + self._comment_offset_base,
+                        int(value[1]) + self._comment_offset_base,
+                    ]
+            readings = candidate.evidence.get('readings')
+            if isinstance(readings, list):
+                for reading in readings:
+                    if not isinstance(reading, dict):
+                        continue
+                    for key in ('comment_bytes', 'track_bytes', 'tail_bytes',
+                                'bytes'):
+                        value = reading.get(key)
+                        if isinstance(value, list) and len(value) == 2:
+                            reading[key] = [
+                                int(value[0]) + self._comment_offset_base,
+                                int(value[1]) + self._comment_offset_base,
+                            ]
+            if self._comment_offset_base:
+                candidate.evidence['local_offset'] = local_offset
+        self._comment_candidates.append(candidate)
 
     def as_dict(self) -> dict[str, str | float | list[str]]:
         """Return a flat dictionary representation of available
@@ -334,6 +408,7 @@ class TinyTag:
     def _update(self, other: TinyTag) -> None:
         # update the values of this tag with the values from another tag
         ignored_keys = {'filename', 'filesize', 'mime_type'}
+        self._comment_candidates.extend(other._comment_candidates)
         for key, value in other.__dict__.items():
             if key.startswith('_') or key in ignored_keys:
                 continue
@@ -486,6 +561,384 @@ class OtherFields(_StringListDict):
 
 class OtherImages(_ImageListDict):
     """A dictionary containing additional images embedded in an audio file."""
+
+
+class Comment:
+    """A comment candidate found in an audio file.
+
+    Candidates are kept in the order they occur in the file.  ``raw`` contains
+    the exact bytes the text was decoded from, so an import tool can verify a
+    value without relying on a later tag having overwritten it.
+    """
+
+    def __init__(self,
+                 text: str,
+                 source: str,
+                 language: str | None = None,
+                 description: str | None = None,
+                 encoding: str | None = None,
+                 raw: bytes = b'',
+                 offset: int | None = None,
+                 truncated: bool = False,
+                 track: int | None = None,
+                 ambiguous: bool = False,
+                 version: str | None = None,
+                 evidence: dict[str, object] | None = None) -> None:
+        self.text = text
+        self.source = source
+        self.version = version
+        self.language = language
+        self.description = description
+        self.encoding = encoding
+        self.raw = raw
+        self.offset = offset
+        self.size = len(raw)
+        self.truncated = truncated
+        self.track = track
+        self.ambiguous = ambiguous
+        self.evidence = evidence or {}
+
+    @property
+    def readings(self) -> list[dict[str, object]]:
+        """Alternative readings of the same bytes, if the version is unclear.
+
+        Each entry describes how the bytes can be read (e.g. ID3v1.0 vs.
+        ID3v1.1) and the byte ranges that support it.
+        """
+        values = self.evidence.get('readings')
+        return list(values) if isinstance(values, list) else []
+
+    @property
+    def byte_range(self) -> tuple[int, int] | None:
+        """Absolute file offsets (start, end) of the candidate bytes."""
+        if self.offset is None:
+            return None
+        return self.offset, self.offset + self.size
+
+    @property
+    def value(self) -> str:
+        """The decoded comment text (alias for ``text``)."""
+        return self.text
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly description including the raw evidence."""
+        return {
+            'text': self.text,
+            'source': self.source,
+            'version': self.version,
+            'language': self.language,
+            'description': self.description,
+            'encoding': self.encoding,
+            'offset': self.offset,
+            'size': self.size,
+            'truncated': self.truncated,
+            'track': self.track,
+            'ambiguous': self.ambiguous,
+            'readings': self.readings,
+            'evidence': dict(self.evidence),
+        }
+
+    def __repr__(self) -> str:
+        fields = [
+            f'text={self.text!r}',
+            f'source={self.source!r}',
+            f'language={self.language!r}',
+            f'description={self.description!r}',
+            f'offset={self.offset!r}',
+            f'truncated={self.truncated!r}',
+        ]
+        if self.track is not None:
+            fields.append(f'track={self.track!r}')
+        if self.ambiguous:
+            fields.append('ambiguous=True')
+        return f'Comment({", ".join(fields)})'
+
+
+class CommentView:
+    """Select the comment to display while keeping all candidates.
+
+    ``selected`` is only set when the caller's preferences leave a single
+    text value.  If several readings remain, or if the preferred candidates
+    disagree, ``selected`` is ``None`` and ``ambiguous`` is true.  The full
+    candidate list is always available for review.
+
+    Preferences are ordered: every requested value is matched before the
+    next one is tried.  A candidate that matches no requested value is still
+    kept as a candidate, and ``matched`` reports that the preference was not
+    satisfied instead of silently dropping it.
+    """
+
+    def __init__(self,
+                 selected: Comment | None,
+                 candidates: list[Comment],
+                 ambiguous: bool = False,
+                 matched: bool = True,
+                 version_ambiguous: bool = False,
+                 preferences: dict[str, tuple[str, ...] | None] | None = None
+                 ) -> None:
+        self.selected = selected
+        self.candidates = candidates
+        self.ambiguous = ambiguous
+        self.matched = matched
+        self.version_ambiguous = version_ambiguous
+        self.preferences = preferences or {}
+        self._alternatives: list[Comment] = []
+
+    @property
+    def text(self) -> str | None:
+        """The selected comment text, if unambiguous."""
+        return self.selected.text if self.selected is not None else None
+
+    @property
+    def value(self) -> str | None:
+        """Alias for ``text``."""
+        return self.text
+
+    @property
+    def alternatives(self) -> list[Comment]:
+        """Candidates still tied after applying the preferences."""
+        return list(self._alternatives)
+
+    @property
+    def readings(self) -> list[dict[str, object]]:
+        """All remaining readings, each with its byte evidence.
+
+        Version alternatives stored on a candidate (ID3v1.0 vs. ID3v1.1)
+        are expanded.  Candidates without such alternatives contribute one
+        reading, so this is always a complete, reviewable list.
+        """
+        result: list[dict[str, object]] = []
+        for candidate in self._alternatives:
+            if candidate.readings:
+                result.extend(dict(reading) for reading in candidate.readings)
+                continue
+            result.append({
+                'version': candidate.version or candidate.source,
+                'source': candidate.source,
+                'text': candidate.text,
+                'language': candidate.language,
+                'description': candidate.description,
+                'offset': candidate.offset,
+                'size': candidate.size,
+                'raw': candidate.raw.hex(),
+                'truncated': candidate.truncated,
+                'track': candidate.track,
+            })
+        return result
+
+    def as_dict(self) -> dict[str, object]:
+        """Return a JSON-friendly description of the view and its evidence."""
+        return {
+            'text': self.text,
+            'ambiguous': self.ambiguous,
+            'version_ambiguous': self.version_ambiguous,
+            'matched': self.matched,
+            'selected': self.selected.as_dict() if self.selected else None,
+            'candidates': [candidate.as_dict()
+                           for candidate in self.candidates],
+            'readings': self.readings,
+        }
+
+    @classmethod
+    def select(cls,
+               candidates: list[Comment],
+               language: str | tuple[str, ...] | list[str] | None = None,
+               description: str | tuple[str, ...] | list[str] | None = None,
+               source: str | tuple[str, ...] | list[str] | None = None
+               ) -> CommentView:
+        preferences = {
+            'language': cls._as_preferences(language),
+            'description': cls._as_preferences(description),
+            'source': cls._as_preferences(source),
+        }
+        ranked: list[
+            tuple[tuple[int, ...], tuple[int, int], int, Comment]] = []
+        for index, candidate in enumerate(candidates):
+            rank = cls._rank(candidate, preferences)
+            ranked.append((
+                rank, cls._quality(candidate, preferences), index, candidate))
+        if not ranked:
+            return cls(None, list(candidates),
+                       matched=all(value is None
+                                   for value in preferences.values()),
+                       preferences=preferences)
+        ranked.sort(key=lambda item: (item[0], item[1], item[2]))
+        top_rank = ranked[0][0]
+        top_rank_candidates = [
+            candidate for rank, _quality, _index, candidate in ranked
+            if rank == top_rank
+        ]
+        source_families = {
+            cls._source_family(candidate) for candidate in top_rank_candidates
+        }
+        top_texts = {
+            candidate.text for candidate in top_rank_candidates
+            if candidate.text.strip()
+        }
+        if len(source_families) > 1 and len(top_texts) > 1:
+            # Different tags disagree, e.g. an old ID3v1 comment and a newer
+            # COMM frame.  Do not let write order pick a winner.
+            tied = top_rank_candidates
+            ambiguous = True
+            version_ambiguous = False
+        else:
+            best_quality = min(
+                cls._quality(candidate, preferences)
+                for candidate in top_rank_candidates)
+            tied = [
+                candidate for candidate in top_rank_candidates
+                if cls._quality(candidate, preferences) == best_quality
+            ]
+            texts = {candidate.text for candidate in tied
+                     if candidate.text.strip()}
+            ambiguous = len(texts) > 1
+            # The same text with two possible versions is still safe to show;
+            # the version uncertainty is reported separately instead of
+            # hiding the value.
+            version_ambiguous = any(
+                candidate.ambiguous for candidate in tied)
+        matched = all(
+            cls._is_exact(candidate, preferences) for candidate in tied)
+        selected = None
+        if not ambiguous and matched and tied:
+            candidate = tied[0]
+            if candidate.text:
+                selected = candidate
+        view = cls(selected, list(candidates), ambiguous=ambiguous,
+                   matched=matched, version_ambiguous=version_ambiguous,
+                   preferences=preferences)
+        view._alternatives = tied
+        return view
+
+    @staticmethod
+    def _source_family(candidate: Comment) -> str:
+        source = candidate.source.casefold()
+        if source.startswith('id3v1'):
+            return 'id3v1'
+        if source.startswith('id3v2'):
+            return 'id3v2'
+        return source.split('.', maxsplit=1)[0]
+
+    @staticmethod
+    def _as_preferences(
+        value: str | tuple[str, ...] | list[str] | None
+    ) -> tuple[str, ...] | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return (value,)
+        return tuple(value)
+
+    @classmethod
+    def _rank(
+        cls,
+        candidate: Comment,
+        preferences: dict[str, tuple[str, ...] | None]
+    ) -> tuple[int, ...]:
+        """Rank a candidate; lower is better.
+
+        Unknown values rank after all explicitly requested ones, but are
+        never discarded, so the candidate list stays complete and the caller
+        can see that its preference did not match.
+        """
+        rank: list[int] = []
+        for dimension in ('language', 'description', 'source'):
+            values = preferences[dimension]
+            if values is None:
+                rank.append(0)
+                continue
+            index = cls._preference_index(
+                candidate, dimension, values)
+            rank.append(index if index is not None else len(values))
+        return tuple(rank)
+
+    @classmethod
+    def _preference_index(
+        cls,
+        candidate: Comment,
+        dimension: str,
+        preferences: tuple[str, ...]
+    ) -> int | None:
+        for index, preference in enumerate(preferences):
+            if cls._matches(candidate, dimension, preference):
+                return index
+        return None
+
+    _LANGUAGE_ALIASES = {
+        'de': 'deu', 'deu': 'deu', 'ger': 'deu',
+        'en': 'eng', 'eng': 'eng',
+        'fr': 'fra', 'fra': 'fra', 'fre': 'fra',
+        'es': 'spa', 'spa': 'spa',
+        'it': 'ita', 'ita': 'ita',
+        'nl': 'nld', 'nld': 'nld', 'dut': 'nld',
+        'pt': 'por', 'por': 'por',
+        'ru': 'rus', 'rus': 'rus',
+        'ja': 'jpn', 'jpn': 'jpn',
+        'zh': 'zho', 'zho': 'zho', 'chi': 'zho',
+    }
+
+    @classmethod
+    def _matches(
+        cls,
+        candidate: Comment,
+        dimension: str,
+        preference: str
+    ) -> bool:
+        preference = preference.casefold()
+        if dimension == 'language':
+            if preference == '':
+                return candidate.language is None
+            if candidate.language is None:
+                return False
+            language = candidate.language.casefold()
+            expected = cls._LANGUAGE_ALIASES.get(
+                preference, preference)
+            actual = cls._LANGUAGE_ALIASES.get(language, language)
+            return actual == expected or language == preference
+        if dimension == 'description':
+            return ((candidate.description or '').casefold()
+                    == preference)
+        candidate_source = candidate.source.casefold()
+        preference = {'v1': 'id3v1', 'v2': 'id3v2'}.get(
+            preference, preference)
+        return (candidate_source == preference
+                or candidate_source.startswith(preference + '.')
+                or (preference == 'id3' and
+                    candidate_source.startswith('id3')))
+
+    @staticmethod
+    def _quality(
+        candidate: Comment,
+        preferences: dict[str, tuple[str, ...] | None]
+    ) -> tuple[int, int]:
+        # Technical COMM frames (iTunNORM and friends) have a description;
+        # prefer the ordinary comment when the caller did not ask for one.
+        description_quality = 0
+        if preferences['description'] is None:
+            description_quality = (
+                0 if not (candidate.description or '') else 1)
+        text_quality = 0 if candidate.text.strip() else 1
+        return description_quality, text_quality
+
+    @classmethod
+    def _is_exact(
+        cls,
+        candidate: Comment,
+        preferences: dict[str, tuple[str, ...] | None]
+    ) -> bool:
+        for dimension in ('language', 'description', 'source'):
+            values = preferences[dimension]
+            if values is None:
+                continue
+            if not any(cls._matches(candidate, dimension, value)
+                       for value in values):
+                return False
+        return True
+
+    def __repr__(self) -> str:
+        return (f'CommentView(selected={self.selected!r}, '
+                f'ambiguous={self.ambiguous!r}, '
+                f'candidates={len(self.candidates)})')
 
 
 class _MP4(TinyTag):
@@ -1147,6 +1600,7 @@ class _ID3(TinyTag):
         return size
 
     def _parse_id3v1(self, fh: BinaryIO) -> bool:
+        tag_offset = fh.tell()
         content = fh.read(128 if self._parse_tags else 3)
         if not content.startswith(b'TAG'):  # check if this is an ID3 v1 tag
             return False
@@ -1171,18 +1625,186 @@ class _ID3(TinyTag):
             value = asciidecode(content[93:97])
             self._set_field('year', value)
         comment = content[97:127]
+        track = None
+        comment_text = comment
         if comment[-2] == 0 and comment[-1] != 0:
+            track = comment[-1]
             if self.track is None:
-                self._set_field('track', comment[-1])
-            comment = comment[:-2]
+                self._set_field('track', track)
+            comment_text = comment[:-2]
         if not self.comment:
-            value = asciidecode(comment)
+            value = asciidecode(comment_text)
             self._set_field('comment', value)
+        self._add_id3v1_comment(
+            comment, comment_text, track, tag_offset + 97, asciidecode)
         if not self.genre:
             genre_id = content[127]
             if genre_id < len(self._ID3V1_GENRES):
                 self._set_field('genre', self._ID3V1_GENRES[genre_id])
         return True
+
+    def _add_id3v1_comment(self,
+                           field: bytes,
+                           text_bytes: bytes,
+                           track: int | None,
+                           offset: int,
+                           decode: Callable[[bytes], str]) -> None:
+        # ID3v1 reserves a fixed 30-byte comment area.  A terminator inside
+        # the area means the comment is complete, even when it is short; the
+        # absence of a terminator only tells us that the area is full.  It
+        # is not proof that the original text was truncated, so ``truncated``
+        # stays false: there is no declared length to compare against.
+        terminator = field.find(b'\x00')
+        field_full = terminator < 0
+        text_value = decode(text_bytes)
+        commentary: dict[str, object] = {
+            'comment_field': [offset, offset + len(field)],
+            'text_bytes': [offset, offset + len(text_bytes)],
+            'field_full': field_full,
+            'truncated': False,
+        }
+        if terminator >= 0:
+            commentary['terminator'] = offset + terminator
+            commentary['padding_bytes'] = [
+                offset + terminator, offset + len(field)]
+        variant_readings: list[dict[str, object]] = []
+        version_ambiguous = False
+        version: str | None = None
+        if track is None:
+            # The comment text fills exactly 28 bytes and is followed by two
+            # NUL bytes: either ID3v1.1 with a zero (unspecified) track, or
+            # ID3v1.0 padding.  The text is identical, but the version is
+            # not determinable.
+            if terminator == 28:
+                variant_readings = [
+                    {
+                        'version': 'id3v1.1',
+                        'text': text_value,
+                        'track': 0,
+                        'bytes': [offset + 28, offset + 30],
+                    },
+                    {
+                        'version': 'id3v1.0',
+                        'text': text_value,
+                        'track': None,
+                        'bytes': [offset, offset + 30],
+                    },
+                ]
+                version_ambiguous = True
+            else:
+                # A terminator before the last two bytes cannot be a v1.1
+                # track marker, and a full area has no room for one either.
+                version = 'id3v1.0'
+        else:
+            commentary['track_bytes'] = [
+                offset + len(text_bytes), offset + len(field)]
+            # ID3v1.1 stores a NUL plus the track in the last two bytes.  A
+            # v1.0 comment uses all 30 bytes, so those same bytes could be
+            # text.  Report both readings when the v1.0 interpretation is
+            # still plausible text; a control byte is much more likely to
+            # be the v1.1 track.
+            v10_text = decode(field)
+            variant_readings = [
+                {
+                    'version': 'id3v1.1',
+                    'text': text_value,
+                    'track': track,
+                    'comment_bytes': [
+                        offset, offset + len(text_bytes)],
+                    'track_bytes': [
+                        offset + len(text_bytes), offset + len(field)],
+                },
+                {
+                    'version': 'id3v1.0',
+                    'text': v10_text,
+                    'track': None,
+                    'comment_bytes': [
+                        offset, offset + len(field)],
+                },
+            ]
+            version_ambiguous = self._is_plausible_v1_text(v10_text)
+        if version_ambiguous:
+            version = 'unknown'
+            commentary['readings'] = variant_readings
+        elif track is not None:
+            version = 'id3v1.1'
+        commentary['version'] = version
+        self._add_comment_candidate(Comment(
+            text_value,
+            'id3v1',
+            version=version,
+            encoding=self._default_encoding or 'latin1',
+            raw=field,
+            offset=offset,
+            truncated=False,
+            track=track,
+            ambiguous=version_ambiguous,
+            evidence=commentary,
+        ))
+
+    @staticmethod
+    def _is_plausible_v1_text(value: str) -> bool:
+        # ID3v1 has no real encoding declaration.  Bytes in the printable
+        # ASCII range or a known Latin-1 repertoire are plausible text;
+        # leftover control bytes after a terminator are not.
+        for char in value:
+            if char == '\x00':
+                continue
+            if not char.isprintable():
+                return False
+        return True
+
+    def _add_id3v2_comment(self,
+                           frame_id: bytes,
+                           content: bytes,
+                           encoding: int,
+                           id3version: int | None,
+                           offset: int,
+                           actual_size: int,
+                           declared_size: int) -> None:
+        if id3version is None:
+            id3version = 2
+        encoding_name = {
+            0x00: 'iso-8859-1',
+            0x01: 'utf-16',
+            0x02: 'utf-16be',
+            0x03: 'utf-8',
+        }.get(encoding, 'iso-8859-1')
+        body = content[4:]
+        text_start = self._find_string_end_pos(body, encoding)
+        text = self._decode_string(body[text_start:], encoding)
+        description = (
+            self._decode_string(body[:text_start], encoding)
+            if text_start < len(body) else '')
+        raw_language = content[1:4]
+        language = None
+        if (len(raw_language) == 3
+                and all(0x20 <= byte <= 0x7e for byte in raw_language)):
+            language = raw_language.decode('latin-1')
+        truncated = declared_size > actual_size
+        evidence: dict[str, object] = {
+            'frame_id': frame_id.decode('latin-1'),
+            'content_bytes': [offset, offset + actual_size],
+            'declared_size': declared_size,
+            'available_size': actual_size,
+            'encoding': encoding,
+            'language_bytes': raw_language.hex(),
+        }
+        if truncated:
+            evidence['truncation_bytes'] = [
+                offset + actual_size, offset + declared_size]
+        self._add_comment_candidate(Comment(
+            text,
+            f'id3v2.{id3version}',
+            version=f'id3v2.{id3version}',
+            language=language,
+            description=description,
+            encoding=encoding_name,
+            raw=content,
+            offset=offset,
+            truncated=truncated,
+            evidence=evidence,
+        ))
 
     def _set_custom_field(self, custom_field_name: str, value: str) -> None:
         custom_field_name_lower = custom_field_name.lower()
@@ -1323,20 +1945,39 @@ class _ID3(TinyTag):
             return -1
         if self._parse_tags and frame_id in self._ID3_MAPPING:
             fieldname = self._ID3_MAPPING[frame_id]
+            content_offset = fh.tell()
             content = fh.read(frame_size)
             if fieldname in {'comment', 'other.lyrics'}:
+                raw_content = content
+                actual_size = len(content)
+                if actual_size < 4:
+                    # Truncated before the language field; there is no text
+                    # to show, but keep the bytes as evidence.
+                    if fieldname == 'comment':
+                        self._add_id3v2_comment(
+                            frame_id, raw_content, 0x00, id3version,
+                            content_offset, actual_size, frame_size)
+                    return parsed_size
                 encoding = content[0]
                 content = content[4:]
                 end_pos = self._find_string_end_pos(content, encoding)
                 value = self._decode_string(content[:end_pos], encoding)
+                content_descriptor = ''
                 if end_pos < len(content):
                     content_descriptor = value
                     value = self._decode_string(content[end_pos:], encoding)
                     # check if comment is a key-value pair (used by iTunes)
                     if fieldname == 'comment' and content_descriptor and value:
                         self._set_custom_field(content_descriptor, value)
+                        self._add_id3v2_comment(
+                            frame_id, raw_content, encoding, id3version,
+                            content_offset, actual_size, frame_size)
                         return parsed_size
                 self._set_field(fieldname, value)
+                if fieldname == 'comment':
+                    self._add_id3v2_comment(
+                        frame_id, raw_content, encoding, id3version,
+                        content_offset, actual_size, frame_size)
                 return parsed_size
             if frame_id.startswith(b'W'):  # URL frame, no custom encoding
                 value = self._decode_string(content)
@@ -2050,10 +2691,12 @@ class _Wave(TinyTag):
             elif (self._parse_tags
                     and chunk_header.startswith((b'id3 ', b'ID3 '))):
                 # pylint: disable=protected-access
+                chunk_offset = fh.tell()
                 id3 = _ID3()
                 id3.filename = self.filename
                 id3.filesize = self.filesize
                 id3._filehandler = BytesIO(fh.read(subchunk_size))
+                id3._comment_offset_base = chunk_offset
                 id3._only_id3 = True
                 id3._load(tags=True, duration=False, image=self._load_image)
                 self._update(id3)
@@ -2511,10 +3154,12 @@ class _Aiff(TinyTag):
             elif (self._parse_tags
                     and chunk_header.startswith((b'id3 ', b'ID3 '))):
                 # pylint: disable=protected-access
+                chunk_offset = fh.tell()
                 id3 = _ID3()
                 id3.filename = self.filename
                 id3.filesize = self.filesize
                 id3._filehandler = BytesIO(fh.read(subchunk_size))
+                id3._comment_offset_base = chunk_offset
                 id3._only_id3 = True
                 id3._load(tags=True, duration=False, image=self._load_image)
                 self._update(id3)

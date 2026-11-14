@@ -159,6 +159,57 @@ tag.track_total: int | None      # total number of tracks
 tag.year: str | None             # year/date
 ```
 
+#### Comments
+
+A file can contain several comments, e.g. an old ID3v1 comment at the end of
+an MP3 file and one or more ID3v2 `COMM` frames at the beginning. `tag.comment`
+keeps the traditional behavior and returns the first value found, but import
+tools should use `comment_candidates` and `comment_view()` to inspect every
+value and its evidence:
+
+```python
+tag.comment_candidates: list[Comment]  # every comment, in file order
+tag.comment_view(language=None, description=None, source=None): CommentView
+```
+
+```python
+from tinytag import Comment, CommentView, TinyTag
+
+tag: TinyTag = TinyTag.get('/some/music.mp3')
+candidates: list[Comment] = tag.comment_candidates
+view: CommentView = tag.comment_view(language='fra')
+```
+
+Each `Comment` records the decoded `text`, the `source` (e.g. `id3v2.3`,
+`id3v1`, `vorbis`), the `version` if known, the `language` and `description`
+of an ID3v2 frame, the exact `raw` bytes and their `offset` in the file, and
+whether the value was `truncated`. `candidate.readings` returns alternative
+interpretations of the same bytes when the format version cannot be
+determined; for ID3v1 this is the ID3v1.0 versus ID3v1.1 reading, including
+the byte ranges for the comment and the track tail.
+
+`comment_view()` accepts ordered preferences for `language`, `description`
+and `source`, and returns a `CommentView`:
+
+```python
+view = tag.comment_view(language='fra', source=['id3v2', 'id3v1'])
+view.text          # selected text, or None if ambiguous
+view.selected      # selected Comment, or None
+view.candidates    # all comments, unchanged
+view.alternatives  # comments still tied after applying preferences
+view.readings      # remaining readings, each with byte evidence
+view.ambiguous     # True if different readings disagree
+view.version_ambiguous  # True if only the tag version is undecided
+view.matched       # False if the preference did not match exactly
+```
+
+Preferences are applied in order. A preference that no candidate satisfies is
+reported through `matched` instead of silently substituting an unrelated
+value. If the candidates disagree, e.g. an ID3v1 comment and a `COMM` frame
+contain different text, `selected` stays `None` so the importer can decide
+with the cataloger; the file order does not pick a winner. `view.as_dict()`
+returns the same information in a JSON-friendly form.
+
 #### Audio MIME Types
 
 At present, tinytag may return the audio MIME types documented in this section.
