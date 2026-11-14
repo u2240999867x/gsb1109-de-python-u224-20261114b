@@ -20,8 +20,10 @@
 # https://github.com/pylast/pylast
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import html
+import json
 import logging
 import os
 import re
@@ -31,6 +33,8 @@ import tempfile
 import time
 import typing
 import xml.parsers
+from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import quote_plus
 from xml.dom import Node, minidom
 
@@ -40,8 +44,8 @@ from ._version import __version__
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
-    from typing import Self
+    from collections.abc import Generator, Iterable, Iterator
+    from typing import Any, Self
 
 
 __author__ = "Amr Hassan, hugovk, Mice Pápai"
@@ -124,6 +128,17 @@ SIZE_MEGA = 4
 
 IMAGES_ORDER_POPULARITY = "popularity"
 IMAGES_ORDER_DATE = "dateadded"
+
+# Lifecycle states derived for a loved track while syncing snapshots of a
+# list that only ever reports the tracks currently present.
+LOVED_STATUS_ACTIVE = "active"
+LOVED_STATUS_PENDING = "pending"
+LOVED_STATUS_REMOVED = "removed"
+
+# Whether a LovedTrackSnapshot observed the whole loved list or only part of it.
+SNAPSHOT_COMPLETE = "complete"
+SNAPSHOT_PARTIAL = "partial"
+SNAPSHOT_DRIFTED = "drifted"
 
 
 # Delay time in seconds from section 4.4 of https://www.last.fm/api/tos
@@ -1147,6 +1162,87 @@ class LovedTrack(typing.NamedTuple):
     timestamp: str
 
 
+@dataclass(frozen=True)
+class LovedTrackKey:
+    """Artist/title pair identifying a loved track independently of a network."""
+
+    artist: str
+    title: str
+
+    def __str__(self) -> str:
+        return f"{self.artist} - {self.title}"
+
+
+@dataclass(frozen=True)
+class LovedTrackSnapshot:
+    """
+    One observed state of the loved list.
+
+    ``complete`` distinguishes a snapshot that covered every page from a
+    partial observation (an interrupted fetch). ``drifted`` marks a complete
+    fetch whose pages disagree about the size of the list, so it changed while
+    the pages were being read and its coverage cannot be fully trusted.
+    """
+
+    captured_at: str
+    tracks: dict[LovedTrackKey, LovedTrack]
+    complete: bool
+    drifted: bool = False
+    page_count: int = 0
+    total_pages: int | None = None
+    totals_seen: tuple[int, ...] = ()
+
+    @property
+    def coverage(self) -> str:
+        if not self.complete:
+            return SNAPSHOT_PARTIAL
+        if self.drifted:
+            return SNAPSHOT_DRIFTED
+        return SNAPSHOT_COMPLETE
+
+    @property
+    def keys(self) -> frozenset[LovedTrackKey]:
+        return frozenset(self.tracks)
+
+
+@dataclass(frozen=True)
+class LovedTrackDiff:
+    """The changes between a trusted snapshot and the one before it."""
+
+    captured_at: str
+    added: frozenset[LovedTrackKey]
+    retained: frozenset[LovedTrackKey]
+    removed: frozenset[LovedTrackKey]
+    unverified: frozenset[LovedTrackKey]
+
+
+@dataclass
+class LovedTrackSyncResult:
+    """
+    Outcome of a sync run.
+
+    ``added``/``retained`` describe tracks seen in the latest snapshot; only a
+    fully covering snapshot can produce ``removed``. ``unverified`` holds
+    tracks whose absence could not be confirmed (partial or drifted fetch) and
+    are kept in the store pending the next run.
+    """
+
+    snapshot: LovedTrackSnapshot
+    diff: LovedTrackDiff | None
+    added: list[LovedTrackKey] = field(default_factory=list)
+    retained: list[LovedTrackKey] = field(default_factory=list)
+    removed: list[LovedTrackKey] = field(default_factory=list)
+    unverified: list[LovedTrackKey] = field(default_factory=list)
+
+    @property
+    def complete(self) -> bool:
+        return self.snapshot.complete
+
+    @property
+    def drifted(self) -> bool:
+        return self.snapshot.drifted
+
+
 class _BaseObject:
     """An abstract webservices object."""
 
@@ -1544,7 +1640,9 @@ class _Opus(_Taggable):
             self.artist = Artist(artist, self.network)
 
         self.title = title
-        self.username = username or network.username  # Default to current user
+        # A None network marks an object rehydrated from an offline store; it
+        # can be inspected but must not be used to make requests.
+        self.username = username or (network.username if network is not None else None)
         self.info = info
 
     def __repr__(self) -> str:
@@ -1729,7 +1827,7 @@ class Artist(_Taggable):
         super().__init__(network=network, ws_prefix="artist")
 
         self.name = name
-        self.username = username or network.username  # Default to current user
+        self.username = username or (network.username if network is not None else None)
         self.info = info
 
     def __repr__(self) -> str:
@@ -2314,6 +2412,106 @@ class User(_Chartable):
 
         return _get_loved_tracks() if stream else list(_get_loved_tracks())
 
+    def capture_loved_track_snapshot(
+        self,
+        page_limit: int = 50,
+        cacheable: bool = True,
+    ) -> LovedTrackSnapshot:
+        """
+        Fetches every page of the user's loved tracks and records a snapshot.
+
+        Unlike :meth:`get_loved_tracks`, this keeps each page boundary so that
+        a fetch interrupted by a network failure still yields the pages that
+        did arrive, and so that a list which changes while the pages are being
+        read can be flagged as drifted rather than mistaken for a full cover.
+
+        The returned snapshot is ``complete`` only when the last expected page
+        was reached; it is additionally ``drifted`` when the pages disagreed
+        about the total size of the list.
+        """
+
+        tracks: dict[LovedTrackKey, LovedTrack] = {}
+        page = 1
+        fetched_pages = 0
+        total_pages: int | None = None
+        totals_seen: list[int] = []
+
+        while True:
+            params = self._get_params()
+            params["limit"] = page_limit
+            params["page"] = str(page)
+
+            tries = 1
+            while True:
+                try:
+                    doc = self._request(
+                        self.ws_prefix + ".getLovedTracks", cacheable, params
+                    )
+                    break  # page fetched
+                except Exception as error:
+                    if not _can_retry(error):
+                        raise
+                    if tries >= 3:
+                        # Retries are exhausted: end the round here but keep
+                        # the pages already fetched, since absence from later
+                        # pages can never be confirmed.
+                        doc = None
+                        break
+                    time.sleep(1)
+                    tries += 1
+
+            if doc is None:
+                break
+
+            doc = cleanup_nodes(doc)
+            if not doc.documentElement.childNodes:
+                break
+
+            main = doc.documentElement.childNodes[0]
+            if main.hasAttribute("totalPages") or main.hasAttribute("totalpages"):
+                total_pages = int(
+                    _number(
+                        main.getAttribute("totalPages")
+                        or main.getAttribute("totalpages")
+                    )
+                )
+            else:
+                msg = "No total pages attribute"
+                raise PyLastError(msg)
+
+            totals_seen.append(int(_number(main.getAttribute("total"))))
+            fetched_pages += 1
+
+            for node in main.childNodes:
+                if node.nodeType == Node.TEXT_NODE:
+                    continue
+                try:
+                    artist = _extract(node, "name", 1)
+                except IndexError:  # pragma: no cover
+                    continue
+                title = _extract(node, "name")
+                date = _extract(node, "date")
+                timestamp = node.getElementsByTagName("date")[0].getAttribute("uts")
+                loved = LovedTrack(Track(artist, title, self.network), date, timestamp)
+                tracks[_loved_track_key(loved.track)] = loved
+
+            if page >= total_pages:
+                break
+            page += 1
+
+        complete = total_pages is not None and fetched_pages >= total_pages
+        drifted = complete and len(set(totals_seen)) > 1
+
+        return LovedTrackSnapshot(
+            captured_at=dt.datetime.now(dt.UTC).isoformat(),
+            tracks=tracks,
+            complete=complete,
+            drifted=drifted,
+            page_count=fetched_pages,
+            total_pages=total_pages,
+            totals_seen=tuple(totals_seen),
+        )
+
     def get_now_playing(self):
         """
         Returns the currently playing track, or None if nothing is playing.
@@ -2855,6 +3053,302 @@ def _collect_nodes(
             page += 1
 
     return _stream_collect_nodes() if stream else list(_stream_collect_nodes())
+
+
+def _loved_track_key(track: Track) -> LovedTrackKey:
+    """Builds the network-independent identity of a loved track."""
+
+    artist = track.get_artist()
+    return LovedTrackKey(
+        artist=artist.get_name() if artist is not None else "",
+        title=track.get_title(),
+    )
+
+
+def _sort_keys(keys: Iterable[LovedTrackKey]) -> list[LovedTrackKey]:
+    return sorted(keys, key=lambda key: (key.artist, key.title))
+
+
+def _loved_key_to_str(key: LovedTrackKey) -> str:
+    return json.dumps({"artist": key.artist, "title": key.title}, sort_keys=True)
+
+
+def _loved_key_from_str(text: str) -> LovedTrackKey:
+    data = json.loads(text)
+    return LovedTrackKey(artist=data["artist"], title=data["title"])
+
+
+def _snapshot_to_dict(snapshot: LovedTrackSnapshot) -> dict[str, Any]:
+    return {
+        "captured_at": snapshot.captured_at,
+        "complete": snapshot.complete,
+        "drifted": snapshot.drifted,
+        "page_count": snapshot.page_count,
+        "total_pages": snapshot.total_pages,
+        "totals_seen": list(snapshot.totals_seen),
+        "tracks": [
+            {
+                "artist": key.artist,
+                "title": key.title,
+                "date": loved.date,
+                "timestamp": loved.timestamp,
+            }
+            for key, loved in snapshot.tracks.items()
+        ],
+    }
+
+
+def _snapshot_from_dict(
+    data: dict[str, Any],
+) -> LovedTrackSnapshot:
+    tracks: dict[LovedTrackKey, LovedTrack] = {}
+    for item in data["tracks"]:
+        key = LovedTrackKey(artist=item["artist"], title=item["title"])
+        # The store outlives any network object; a network-less Track is enough
+        # for offline review of what was observed.
+        tracks[key] = LovedTrack(
+            Track(item["artist"], item["title"], network=None),
+            item["date"],
+            item["timestamp"],
+        )
+
+    return LovedTrackSnapshot(
+        captured_at=data["captured_at"],
+        tracks=tracks,
+        complete=data["complete"],
+        drifted=data["drifted"],
+        page_count=data["page_count"],
+        total_pages=data["total_pages"],
+        totals_seen=tuple(data["totals_seen"]),
+    )
+
+
+def diff_loved_track_snapshots(
+    previous: LovedTrackSnapshot | None,
+    current: LovedTrackSnapshot,
+) -> LovedTrackDiff | None:
+    """
+    Compares two snapshots at the key level.
+
+    Only a complete, non-drifted ``current`` snapshot can confirm removals.
+    A partial or drifted snapshot yields no removed keys: anything missing is
+    reported as unverified instead, so two incomplete observations can never
+    manufacture a cancel followed by an add.
+    """
+
+    current_keys = current.keys
+    trustworthy = current.complete and not current.drifted
+
+    if previous is None:
+        added = set(current_keys)
+        retained: set[LovedTrackKey] = set()
+    else:
+        previous_keys = previous.keys
+        added = set(current_keys - previous_keys)
+        retained = set(current_keys & previous_keys)
+
+    if trustworthy and previous is not None:
+        removed = set(previous.keys - current_keys)
+        unverified: set[LovedTrackKey] = set()
+    else:
+        removed = set()
+        known_previous = previous.keys if previous is not None else frozenset()
+        unverified = set(known_previous - current_keys)
+
+    return LovedTrackDiff(
+        captured_at=current.captured_at,
+        added=frozenset(added),
+        retained=frozenset(retained),
+        removed=frozenset(removed),
+        unverified=frozenset(unverified),
+    )
+
+
+class LovedTrackStore:
+    """
+    Persistent record of loved-track snapshots and the lifecycle state derived
+    from them.
+
+    Every snapshot is kept on disk, including partial ones saved after a
+    network failure, so an interrupted fetch remains available for review.
+    Track state moves between ``active``, ``pending`` and ``removed``; a track
+    is only marked removed when a complete, non-drifted snapshot fails to find
+    it.
+    """
+
+    SCHEMA_VERSION = 1
+
+    def __init__(
+        self, path: str | os.PathLike[str], user_name: str | None = None
+    ) -> None:
+        self.path = Path(path)
+        self.user_name = user_name
+        self.snapshots: list[LovedTrackSnapshot] = []
+        self.records: dict[LovedTrackKey, dict[str, Any]] = {}
+        self.last_complete_at: str | None = None
+        self.load()
+
+    def load(self) -> None:
+        if not self.path.exists():
+            return
+
+        with self.path.open(encoding="utf-8") as handle:
+            data = json.load(handle)
+
+        self.user_name = data.get("user", self.user_name)
+        self.snapshots = [
+            _snapshot_from_dict(item) for item in data.get("snapshots", [])
+        ]
+        self.records = {
+            _loved_key_from_str(key): value
+            for key, value in data.get("records", {}).items()
+        }
+        self.last_complete_at = data.get("last_complete_at")
+
+    def save(self) -> None:
+        payload = {
+            "version": self.SCHEMA_VERSION,
+            "user": self.user_name,
+            "last_complete_at": self.last_complete_at,
+            "snapshots": [_snapshot_to_dict(snapshot) for snapshot in self.snapshots],
+            "records": {
+                _loved_key_to_str(key): value for key, value in self.records.items()
+            },
+        }
+
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.path.with_name(self.path.name + ".tmp")
+        with temporary.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+        os.replace(temporary, self.path)
+
+    def latest_snapshot(self) -> LovedTrackSnapshot | None:
+        return self.snapshots[-1] if self.snapshots else None
+
+    def latest_complete_snapshot(self) -> LovedTrackSnapshot | None:
+        for snapshot in reversed(self.snapshots):
+            if snapshot.complete and not snapshot.drifted:
+                return snapshot
+        return None
+
+    def get_status(self, key: LovedTrackKey) -> str | None:
+        record = self.records.get(key)
+        return record["status"] if record else None
+
+    def keys_with_status(self, status: str) -> list[LovedTrackKey]:
+        return _sort_keys(
+            key for key, record in self.records.items() if record["status"] == status
+        )
+
+    def apply_snapshot(self, snapshot: LovedTrackSnapshot) -> LovedTrackSyncResult:
+        """
+        Reconciles one fetched snapshot against everything already stored.
+
+        Removals are only confirmed against a complete, non-drifted snapshot;
+        otherwise tracks that simply could not be observed are parked as
+        pending and keep their history untouched. A track seen again moves
+        straight back to active, so a brief absence between two incomplete
+        fetches never becomes a cancel followed by an add.
+        """
+
+        previous_complete = self.latest_complete_snapshot()
+        baseline = previous_complete or self.latest_snapshot()
+        current_keys = snapshot.keys
+        captured_at = snapshot.captured_at
+        can_confirm = snapshot.complete and not snapshot.drifted
+
+        added: set[LovedTrackKey] = set()
+        retained: set[LovedTrackKey] = set()
+
+        for key in current_keys:
+            record = self.records.get(key)
+            if record is None:
+                self.records[key] = {
+                    "artist": key.artist,
+                    "title": key.title,
+                    "status": LOVED_STATUS_ACTIVE,
+                    "first_seen": captured_at,
+                    "last_seen": captured_at,
+                    "last_snapshot": captured_at,
+                    "last_confirmed_complete": (captured_at if can_confirm else None),
+                }
+                added.add(key)
+                continue
+
+            # Presence is direct evidence on its own: anything observed now is
+            # active again, even if the fetch did not cover every page.
+            if record["status"] == LOVED_STATUS_REMOVED:
+                added.add(key)
+            else:
+                retained.add(key)
+            record["status"] = LOVED_STATUS_ACTIVE
+            record["last_seen"] = captured_at
+            record["last_snapshot"] = captured_at
+            if can_confirm:
+                record["last_confirmed_complete"] = captured_at
+
+        missing = set(self.records) - current_keys
+        removed: set[LovedTrackKey] = set()
+        unverified: set[LovedTrackKey] = set()
+
+        if can_confirm:
+            for key in missing:
+                record = self.records[key]
+                already_removed = record["status"] == LOVED_STATUS_REMOVED
+                record["status"] = LOVED_STATUS_REMOVED
+                record["last_snapshot"] = captured_at
+                # Only report tracks whose state actually changes this round.
+                if not already_removed:
+                    removed.add(key)
+        else:
+            for key in missing:
+                record = self.records[key]
+                record["last_snapshot"] = captured_at
+                # A previously confirmed removal stays confirmed; only tracks
+                # believed active become pending until the next full fetch.
+                if record["status"] != LOVED_STATUS_REMOVED:
+                    record["status"] = LOVED_STATUS_PENDING
+                    unverified.add(key)
+
+        if can_confirm:
+            self.last_complete_at = captured_at
+
+        self.snapshots.append(snapshot)
+        self.save()
+
+        diff = diff_loved_track_snapshots(baseline, snapshot)
+
+        return LovedTrackSyncResult(
+            snapshot=snapshot,
+            diff=diff,
+            added=_sort_keys(added),
+            retained=_sort_keys(retained),
+            removed=_sort_keys(removed),
+            unverified=_sort_keys(unverified),
+        )
+
+
+class LovedTrackSyncer:
+    """
+    Drives repeated loved-list synchronisation for one user.
+
+    Each :meth:`sync` captures the current list (page by page, tolerating an
+    interrupted fetch) and reconciles it with a :class:`LovedTrackStore`,
+    returning the derived additions, retained tracks, confirmed removals and
+    anything that could not be verified this round.
+    """
+
+    def __init__(self, user: User, store: LovedTrackStore) -> None:
+        self.user = user
+        self.store = store
+
+    def sync(
+        self, page_limit: int = 50, cacheable: bool = True
+    ) -> LovedTrackSyncResult:
+        snapshot = self.user.capture_loved_track_snapshot(
+            page_limit=page_limit, cacheable=cacheable
+        )
+        return self.store.apply_snapshot(snapshot)
 
 
 def _extract(node, name, index: int = 0):

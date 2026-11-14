@@ -43,6 +43,8 @@ Or from requirements.txt:
 - Proxy support.
 - Internal caching support for some web services calls (disabled by default).
 - Support for other API-compatible networks like Libre.fm.
+- Snapshot-based loved-track syncing that derives additions, retained tracks
+  and confirmed removals while tolerating interrupted fetches and list drift.
 
 ## Getting started
 
@@ -118,6 +120,41 @@ track.add_tags(("awesome", "favorite"))
 More examples in
 <a href="https://github.com/hugovk/lastfm-tools">hugovk/lastfm-tools</a> and
 [tests/](https://github.com/pylast/pylast/tree/main/tests).
+
+## Syncing loved tracks
+
+The API only returns the tracks currently loved; it never sends an "unloved"
+event. `LovedTrackSyncer` keeps a persistent `LovedTrackStore` and derives the
+changes between runs:
+
+```python
+user = network.get_user(username)
+store = pylast.LovedTrackStore("loved_tracks.json", user_name=username)
+result = pylast.LovedTrackSyncer(user, store).sync()
+
+print("added:", result.added)
+print("still loved:", result.retained)
+print("confirmed removed:", result.removed)
+print("could not verify this run:", result.unverified)
+```
+
+Each run captures the list page by page into a snapshot and keeps every
+snapshot in the store, including failed rounds:
+
+- A snapshot is `complete` only when every expected page was fetched. A network
+  failure ends the round early and stores a `partial` snapshot, so the pages
+  already retrieved remain available for review instead of being discarded.
+- If the reported list size changes between page boundaries, the fetch finishes
+  but is marked `drifted`; its coverage cannot be fully trusted.
+- Removals are only confirmed from a complete, non-drifted snapshot. Tracks
+  missing from a partial or drifted round become `pending` (reported in
+  `unverified`) rather than removed.
+- A pending track observed again returns straight to `active`: two incomplete
+  observations never manufacture a cancel followed by an add.
+
+Track state is available through `store.get_status(key)` and
+`store.keys_with_status(...)`, using the `LOVED_STATUS_ACTIVE`,
+`LOVED_STATUS_PENDING` and `LOVED_STATUS_REMOVED` constants.
 
 ## Testing
 
