@@ -1,3 +1,14 @@
+Unreleased
+----------
+- Add :mod:`iso8583.signed_amount` for legacy fixed-length BCD amount fields that
+  carry the sign in the last nibble. It keeps negative zero, normal zero, an empty
+  field and an illegal sign code distinct, exposes an integer and fixed-point
+  numeric view, and retains the original bytes and nibble string for verbatim
+  re-encoding.
+- Add executable cross-specification samples in ``examples/signed_amount_samples.py``
+  covering two value-12 fields of different business widths, including byte-identical
+  decode/encode round trips.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.

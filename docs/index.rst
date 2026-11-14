@@ -40,5 +40,6 @@ To install::
    intro
    howto
    specifications
+   signed_amount
    functions
    changelog
