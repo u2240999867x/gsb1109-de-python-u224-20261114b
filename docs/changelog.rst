@@ -2,6 +2,16 @@ Changelog
 =========
 
 
+Version 1.6.0
+-------------
+
+Not released yet.
+
+* Add the :mod:`tinycss2.cascade` module to resolve the winning declaration
+  of matched rules, supporting style origins, named and anonymous cascade
+  layers, unlayered rules, ``!important``, specificity and source order
+
+
 Version 1.5.1
 -------------
 

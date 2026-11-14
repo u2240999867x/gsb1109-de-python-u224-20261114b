@@ -77,6 +77,25 @@ Color Level 5
 .. autofunction:: serialize_nth
 
 
+Cascade
+-------
+
+tinycss2 does not know about selectors or elements, but once the caller has
+matched selectors against an element and computed each rule’s specificity, the
+:mod:`tinycss2.cascade` module resolves which declaration wins according to
+the cascade sorting order: style origin, cascade layers (including anonymous
+layers and unlayered rules), importance, specificity and source order.
+
+.. module:: tinycss2.cascade
+.. autoclass:: CascadeOrigin()
+   :members:
+.. autoclass:: Cascade()
+   :members:
+.. autoclass:: CascadeEntry()
+.. autoclass:: AnonymousLayer()
+.. autofunction:: cascade
+
+
 AST nodes
 ---------
 
