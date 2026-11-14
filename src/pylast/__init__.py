@@ -28,6 +28,7 @@ import re
 import shelve
 import ssl
 import tempfile
+import threading
 import time
 import typing
 import xml.parsers
@@ -204,6 +205,8 @@ class _Network:
         self.cache_backend: _ShelfCacheBackend | None = None
         self.last_call_time: float = 0.0
         self.limit_rate = False
+        self._page_sources: dict[tuple, _SharedPageSource] = {}
+        self._page_sources_lock = threading.Lock()
 
         if isinstance(proxy, str):
             self.proxy = {"https://": httpx.HTTPTransport(proxy=proxy)}
@@ -472,6 +475,39 @@ class _Network:
     def is_caching_enabled(self) -> bool:
         """Returns True if caching is enabled."""
         return self.cache_backend is not None
+
+    def _acquire_page_source(
+        self, sender, method_name: str, cacheable: bool, params: dict
+    ) -> _SharedPageSource:
+        """
+        Returns the shared page source for a paginated endpoint, attaching
+        the caller as a reader. Concurrent readers of identical pages share
+        the same source (and thus the same in-flight page requests) while
+        keeping their own cursor, limit and failure state.
+        """
+        key = (
+            method_name,
+            bool(cacheable),
+            tuple(sorted((str(k), str(v)) for k, v in params.items())),
+        )
+        with self._page_sources_lock:
+            source = self._page_sources.get(key)
+            if source is None:
+                source = _SharedPageSource(sender, method_name, cacheable, params, key)
+                self._page_sources[key] = source
+            source.readers += 1
+            return source
+
+    def _release_page_source(self, source: _SharedPageSource) -> None:
+        """
+        Detaches a reader from a shared page source. Once the last reader
+        has stopped, the source is dropped and no more pages are fetched.
+        """
+        with self._page_sources_lock:
+            source.readers -= 1
+            if source.readers <= 0:
+                if self._page_sources.get(source.key) is source:
+                    del self._page_sources[source.key]
 
     def search_for_album(self, album_name: str) -> AlbumSearch:
         """Searches for an album by its name. Returns an AlbumSearch object.
@@ -2795,6 +2831,106 @@ def _can_retry(exception: Exception) -> bool:
     return True
 
 
+def _request_page_with_retries(sender, method_name, cacheable, params):
+    """
+    Fetches one page, retrying transient failures before giving up.
+    """
+    tries = 1
+    while True:
+        try:
+            return sender._request(method_name, cacheable, params)
+        except Exception as e:
+            if not _can_retry(e):
+                raise
+            if tries >= 3:
+                if isinstance(e, PyLastError):
+                    raise
+                raise PyLastError() from e
+            # Wait and try again
+            time.sleep(1)
+            tries += 1
+
+
+class _PageSlot:
+    """The shared outcome of one physical page request."""
+
+    __slots__ = ("doc", "error", "event")
+
+    def __init__(self) -> None:
+        self.event = threading.Event()
+        self.doc: minidom.Document | None = None
+        self.error: Exception | None = None
+
+
+class _SharedPageSource:
+    """
+    Shares identical page requests between concurrent readers of the same
+    paginated endpoint.
+
+    Each page is downloaded at most once for as long as the source lives:
+    the first reader to ask for a page fetches it, and any other reader
+    asking for the same page while it is in flight (or after it has
+    completed) receives the same response instead of triggering a duplicate
+    request. Readers keep their own cursor, limit and failure state; a
+    reader that stops early never cancels a page another reader still
+    needs, and once every reader has stopped the source is released and no
+    more pages are fetched.
+    """
+
+    def __init__(self, sender, method_name, cacheable, params, key) -> None:
+        self.sender = sender
+        self.method_name = method_name
+        self.cacheable = cacheable
+        self.params = params
+        self.key = key
+        self.readers = 0
+        self.slots: dict[int, _PageSlot] = {}
+        self.lock = threading.Lock()
+
+    def get_page(self, page: int) -> minidom.Document:
+        """
+        Returns the DOM of the given page, fetching it at most once and
+        sharing the result (or the failure) with every concurrent reader.
+        """
+        with self.lock:
+            slot = self.slots.get(page)
+            if slot is None:
+                slot = _PageSlot()
+                self.slots[page] = slot
+                leader = True
+            else:
+                leader = False
+
+        if leader:
+            params = dict(self.params)
+            params["page"] = str(page)
+            try:
+                slot.doc = cleanup_nodes(
+                    _request_page_with_retries(
+                        self.sender, self.method_name, self.cacheable, params
+                    )
+                )
+            except Exception as e:
+                slot.error = e
+                # Failed pages are not kept: a later reader gets its own
+                # attempt (and its own failure state) instead of this one.
+                with self.lock:
+                    if self.slots.get(page) is slot:
+                        del self.slots[page]
+            finally:
+                slot.event.set()
+        else:
+            slot.event.wait()
+
+        if slot.error is not None:
+            raise slot.error
+        if slot.doc is None:  # pragma: no cover
+            msg = "Shared page request returned no response"
+            raise PyLastError(msg)
+
+        return slot.doc
+
+
 def _collect_nodes(
     limit, sender, method_name, cacheable, params=None, stream: bool = False
 ):
@@ -2804,55 +2940,46 @@ def _collect_nodes(
     if not params:
         params = sender._get_params()
 
+    base_params = {key: value for key, value in params.items() if key != "page"}
+
     def _stream_collect_nodes():
         node_count = 0
         page = 1
         end_of_pages = False
+        source = sender.network._acquire_page_source(
+            sender, method_name, cacheable, base_params
+        )
 
-        while not end_of_pages and (not limit or node_count < limit):
-            params["page"] = str(page)
+        try:
+            while not end_of_pages and (not limit or node_count < limit):
+                doc = source.get_page(page)
 
-            tries = 1
-            while True:
-                try:
-                    doc = sender._request(method_name, cacheable, params)
-                    break  # success
-                except Exception as e:
-                    if not _can_retry(e):
-                        raise
-                    if tries >= 3:
-                        if isinstance(e, PyLastError):
-                            raise
-                        raise PyLastError() from e
-                    # Wait and try again
-                    time.sleep(1)
-                    tries += 1
+                # break if there are no child nodes
+                if not doc.documentElement.childNodes:
+                    break
+                main = doc.documentElement.childNodes[0]
 
-            doc = cleanup_nodes(doc)
+                if main.hasAttribute("totalPages") or main.hasAttribute("totalpages"):
+                    total_pages = _number(
+                        main.getAttribute("totalPages")
+                        or main.getAttribute("totalpages")
+                    )
+                else:
+                    msg = "No total pages attribute"
+                    raise PyLastError(msg)
 
-            # break if there are no child nodes
-            if not doc.documentElement.childNodes:
-                break
-            main = doc.documentElement.childNodes[0]
+                for node in main.childNodes:
+                    if node.nodeType != Node.TEXT_NODE and (
+                        not limit or (node_count < limit)
+                    ):
+                        node_count += 1
+                        yield node
 
-            if main.hasAttribute("totalPages") or main.hasAttribute("totalpages"):
-                total_pages = _number(
-                    main.getAttribute("totalPages") or main.getAttribute("totalpages")
-                )
-            else:
-                msg = "No total pages attribute"
-                raise PyLastError(msg)
+                end_of_pages = page >= total_pages
 
-            for node in main.childNodes:
-                if node.nodeType != Node.TEXT_NODE and (
-                    not limit or (node_count < limit)
-                ):
-                    node_count += 1
-                    yield node
-
-            end_of_pages = page >= total_pages
-
-            page += 1
+                page += 1
+        finally:
+            sender.network._release_page_source(source)
 
     return _stream_collect_nodes() if stream else list(_stream_collect_nodes())
 

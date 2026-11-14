@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from unittest.mock import Mock, patch
 
 import pytest
@@ -126,3 +127,248 @@ def test_cacheable_request_with_username_param_hits_cache_on_second_call() -> No
         album.get_userplaycount()
 
     assert post.call_count == 1
+
+
+def _friends_page(page: int, total_pages: int, names: list[str]) -> bytes:
+    users = "".join(f"<user><name>{name}</name></user>" for name in names)
+    return (
+        '<?xml version="1.0"?>'
+        '<lfm status="ok">'
+        f'<friends user="alice" page="{page}" perPage="2" '
+        f'totalPages="{total_pages}" total="4">'
+        f"{users}</friends></lfm>"
+    ).encode()
+
+
+def _paged_post(pages: dict[str, list[str]], requested: list[str]):
+    def post(url, data=None):
+        page = data["page"]
+        requested.append(page)
+        body = _friends_page(int(page), len(pages), pages[page])
+        return Mock(status_code=200, read=Mock(return_value=body))
+
+    return post
+
+
+def test_concurrent_readers_share_in_flight_page_request() -> None:
+    # Arrange: two readers paging through the same endpoint at the same time
+    network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    user = network.get_user("alice")
+    pages = {"1": ["bob", "carol"], "2": ["dave", "erin"]}
+    requested: list[str] = []
+    fetch_started = threading.Event()
+    release_fetch = threading.Event()
+    second_got_first = threading.Event()
+    allow_page_2 = threading.Event()
+    results: dict[str, list[str]] = {}
+    errors: dict[str, Exception] = {}
+
+    def post(url, data=None):
+        page = data["page"]
+        requested.append(page)
+        if page == "1":
+            fetch_started.set()
+            assert release_fetch.wait(timeout=10)
+        else:
+            assert allow_page_2.wait(timeout=10)
+        body = _friends_page(int(page), 2, pages[page])
+        return Mock(status_code=200, read=Mock(return_value=body))
+
+    def read_first() -> None:
+        try:
+            results["first"] = [
+                friend.get_name()
+                for friend in user.get_friends(limit=None, stream=True)
+            ]
+        except Exception as e:  # pragma: no cover
+            errors["first"] = e
+
+    def read_second() -> None:
+        try:
+            names = []
+            for friend in user.get_friends(limit=None, stream=True):
+                names.append(friend.get_name())
+                second_got_first.set()
+            results["second"] = names
+        except Exception as e:  # pragma: no cover
+            errors["second"] = e
+
+    # Act
+    with patch("httpx2.Client.post", side_effect=post):
+        first = threading.Thread(target=read_first)
+        first.start()
+        assert fetch_started.wait(timeout=10)
+        second = threading.Thread(target=read_second)
+        second.start()
+        release_fetch.set()
+        # Keep the first reader inside the shared source until the second
+        # reader has attached and received its first item from page 1.
+        assert second_got_first.wait(timeout=10)
+        allow_page_2.set()
+        first.join(timeout=10)
+        second.join(timeout=10)
+
+    # Assert: identical pages were fetched once, both readers got everything
+    assert not errors
+    assert results["first"] == ["bob", "carol", "dave", "erin"]
+    assert results["second"] == ["bob", "carol", "dave", "erin"]
+    assert requested == ["1", "2"]
+
+
+def test_early_exit_keeps_shared_pages_alive_for_other_reader() -> None:
+    # Arrange: a preview reader stops early while a full scrape continues
+    network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    user = network.get_user("alice")
+    pages = {"1": ["a", "b"], "2": ["c", "d"]}
+    requested: list[str] = []
+
+    # Act
+    with patch("httpx2.Client.post", side_effect=_paged_post(pages, requested)):
+        preview = user.get_friends(limit=None, stream=True)
+        full = user.get_friends(limit=None, stream=True)
+        assert next(preview).get_name() == "a"
+        full_iter = iter(full)
+        assert next(full_iter).get_name() == "a"
+        # The preview stops early: pages it fetched must stay available
+        preview.close()
+        rest = [friend.get_name() for friend in full_iter]
+
+    # Assert: the full scrape is undisturbed, each page fetched only once
+    assert rest == ["b", "c", "d"]
+    assert requested == ["1", "2"]
+
+
+def test_no_more_pages_fetched_once_all_readers_stop() -> None:
+    # Arrange
+    network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    user = network.get_user("alice")
+    pages = {"1": ["a", "b"], "2": ["c", "d"]}
+    requested: list[str] = []
+
+    # Act: both readers stop after the first page
+    with patch("httpx2.Client.post", side_effect=_paged_post(pages, requested)):
+        first = user.get_friends(limit=None, stream=True)
+        second = user.get_friends(limit=None, stream=True)
+        assert next(first).get_name() == "a"
+        assert next(second).get_name() == "a"
+        first.close()
+        second.close()
+
+    # Assert: with no readers left, page 2 is never fetched
+    assert requested == ["1"]
+
+
+def test_readers_with_limit_mid_page_keep_solo_order() -> None:
+    # Arrange: duplicates span pages, the preview limit lands mid page 2
+    pages = {"1": ["a", "b"], "2": ["c", "d"]}
+    requested: list[str] = []
+
+    def read_all(user, limit):
+        return [
+            friend.get_name() for friend in user.get_friends(limit=limit, stream=True)
+        ]
+
+    # Act: interleave a limited preview with a full scrape on one source
+    shared_network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    shared_user = shared_network.get_user("alice")
+    with patch("httpx2.Client.post", side_effect=_paged_post(pages, requested)):
+        preview = shared_user.get_friends(limit=3, stream=True)
+        full = shared_user.get_friends(limit=None, stream=True)
+        shared_preview = []
+        shared_full = []
+        for _ in range(3):
+            shared_preview.append(next(preview).get_name())
+            shared_full.append(next(full).get_name())
+        shared_full.extend(friend.get_name() for friend in full)
+        preview.close()
+
+    # Solo runs on separate networks for comparison
+    solo_network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    solo_user = solo_network.get_user("alice")
+    with patch("httpx2.Client.post", side_effect=_paged_post(pages, [])):
+        solo_preview = read_all(solo_user, 3)
+        solo_full = read_all(solo_user, None)
+
+    # Assert: each reader saw exactly what it would have seen alone
+    assert shared_preview == solo_preview == ["a", "b", "c"]
+    assert shared_full == solo_full == ["a", "b", "c", "d"]
+    # ... while each page was fetched only once for both readers
+    assert requested == ["1", "2"]
+
+
+def test_failed_page_is_retried_by_a_later_reader() -> None:
+    # Arrange: page 2 keeps failing, then recovers
+    network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    user = network.get_user("alice")
+    pages = {"1": ["a", "b"], "2": ["c", "d"]}
+    unavailable = Mock(status_code=503)
+    page_2_attempts = 0
+
+    def post(url, data=None):
+        nonlocal page_2_attempts
+        page = data["page"]
+        if page == "2":
+            page_2_attempts += 1
+            if page_2_attempts <= 3:
+                return unavailable
+        body = _friends_page(int(page), 2, pages[page])
+        return Mock(status_code=200, read=Mock(return_value=body))
+
+    # Act & Assert: the first reader exhausts its retries on page 2
+    with (
+        patch("httpx2.Client.post", side_effect=post),
+        patch("pylast.time.sleep"),
+        pytest.raises(pylast.WSError) as excinfo,
+    ):
+        user.get_friends(limit=None)
+    assert excinfo.value.get_id() == 503
+
+    # A later reader gets its own attempt instead of the cached failure
+    with (
+        patch("httpx2.Client.post", side_effect=post),
+        patch("pylast.time.sleep"),
+    ):
+        names = [friend.get_name() for friend in user.get_friends(limit=None)]
+    assert names == ["a", "b", "c", "d"]
+
+
+def test_shared_page_failure_reaches_every_reader() -> None:
+    # Arrange: page 2 always fails, two readers wait on it
+    network = pylast.LastFMNetwork(api_key="k", api_secret="s")
+    user = network.get_user("alice")
+    pages = {"1": ["a", "b"], "2": ["c", "d"]}
+    unavailable = Mock(status_code=503)
+
+    def post(url, data=None):
+        page = data["page"]
+        if page == "2":
+            return unavailable
+        body = _friends_page(int(page), 2, pages[page])
+        return Mock(status_code=200, read=Mock(return_value=body))
+
+    errors: dict[str, Exception] = {}
+
+    def read(key: str) -> None:
+        try:
+            user.get_friends(limit=None)
+        except Exception as e:
+            errors[key] = e
+
+    # Act
+    with (
+        patch("httpx2.Client.post", side_effect=post),
+        patch("pylast.time.sleep"),
+    ):
+        threads = [
+            threading.Thread(target=read, args=(key,)) for key in ("first", "second")
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+    # Assert: each reader keeps its own failure state
+    assert set(errors) == {"first", "second"}
+    for error in errors.values():
+        assert isinstance(error, pylast.WSError)
+        assert error.get_id() == 503
