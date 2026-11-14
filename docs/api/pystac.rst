@@ -129,6 +129,23 @@ ItemCollection
 .. autoclass:: pystac.ItemCollection
    :members:
 
+Inventory
+---------
+
+.. autofunction:: pystac.build_inventory
+
+.. autoclass:: pystac.Inventory
+   :members:
+
+.. autoclass:: pystac.ObjectIdentity
+   :members:
+
+.. autoclass:: pystac.ObjectRecord
+   :members:
+
+.. autoclass:: pystac.MembershipRecord
+   :members:
+
 Link
 ----
 

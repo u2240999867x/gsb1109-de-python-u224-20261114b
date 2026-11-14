@@ -33,6 +33,11 @@ __all__ = [
     "Item",
     "Asset",
     "ItemCollection",
+    "Inventory",
+    "ObjectIdentity",
+    "ObjectRecord",
+    "MembershipRecord",
+    "build_inventory",
     "Provider",
     "ProviderRole",
     "read_file",
@@ -81,6 +86,13 @@ from pystac.summaries import RangeSummary, Summaries
 from pystac.asset import Asset
 from pystac.item import Item
 from pystac.item_collection import ItemCollection
+from pystac.inventory import (
+    Inventory,
+    MembershipRecord,
+    ObjectIdentity,
+    ObjectRecord,
+    build_inventory,
+)
 from pystac.provider import ProviderRole, Provider
 from pystac.utils import HREF
 import pystac.validation

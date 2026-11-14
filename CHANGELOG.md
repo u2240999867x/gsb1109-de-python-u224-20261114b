@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `build_inventory` and the `Inventory`, `ObjectIdentity`, `ObjectRecord`, and
+  `MembershipRecord` classes for building object and membership tables that distinguish
+  same-ID Items from different collections or HREFs and retain contradictory source
+  versions under the same logical ID
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed
