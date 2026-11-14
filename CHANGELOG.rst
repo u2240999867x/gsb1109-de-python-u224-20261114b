@@ -10,6 +10,13 @@ dev
 
 **API Changes (Backward Compatible)**
 
+- Added the :mod:`hpack.history` module for decoding labeled batches of HTTP/2
+  header blocks.  :class:`hpack.BlockDecoder` keeps one independent
+  compression context per connection generation and direction, emits a
+  deterministic long table of decoded fields via
+  :attr:`hpack.BlockDecoder.fields`, and retains the historical block behind
+  every table index reference on :class:`hpack.HeaderBlockRef`.
+
 **Bugfixes**
 
 
