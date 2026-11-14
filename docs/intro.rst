@@ -333,6 +333,33 @@ clusters, and wide characters to a given display width.
     >>> wrap('\x1b[1;31mhello world\x1b[0m', 5)
     ['\x1b[1;31mhello\x1b[0m', '\x1b[1;31mworld\x1b[0m']
 
+unwrap()
+--------
+
+Use function `unwrap()`_ to reconstruct logical records from a line-by-line screen transcript when
+the capture width and wrap markers are available from a side table.  A physical line that fills the
+capture width is *not* proof of a soft wrap, and space left because the next grapheme cluster did
+not fit may be layout padding: only explicit markers join or split records.
+
+.. code-block:: python
+
+    >>> from wcwidth import WrapMarker, unwrap
+    >>> transcript = ['Diagnostic  ', 'complete  ', 'Next record']
+    >>> unwrap(transcript, width=12, markers=[
+    ...     WrapMarker.SOFT, WrapMarker.HARD])
+    ['Diagnostic  complete  ', 'Next record']
+
+    >>> # A full line with a hard marker stays a separate record
+    >>> unwrap(['abcdefgh', 'ij'], width=8, markers=[False])
+    ['abcdefgh', 'ij']
+
+    >>> # A missing marker is reported as an ambiguous seam, not guessed
+    >>> result = unwrap(['abc', 'def'], width=10)
+    >>> [str(seam) for seam in result.ambiguous_seams]
+    ['seam 0: ambiguous']
+    >>> result.resolve(0, 'soft')
+    ['abcdef']
+
 clip()
 ------
 
@@ -573,6 +600,7 @@ https://wcwidth.readthedocs.io/en/latest/related.html
 .. _`rjust()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.rjust
 .. _`center()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.center
 .. _`wrap()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.wrap
+.. _`unwrap()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.unwrap
 .. _`clip()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.clip
 .. _`strip_sequences()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.strip_sequences
 .. _`iter_sequences()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_sequences

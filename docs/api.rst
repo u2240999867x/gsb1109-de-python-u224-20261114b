@@ -28,6 +28,16 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.wrap
 
+.. autofunction:: wcwidth.unwrap
+
+.. autoclass:: wcwidth.WrapMarker
+
+.. autoclass:: wcwidth.UnwrapSeam
+
+.. autoclass:: wcwidth.LogicalRecord
+
+.. autoclass:: wcwidth.UnwrapResult
+
 .. autofunction:: wcwidth.iter_line_breaks
 
 .. autofunction:: wcwidth.clip

@@ -23,6 +23,7 @@ __lazy_modules__ = [
     "wcwidth.table_zero",
     "wcwidth.text_sizing",
     "wcwidth.textwrap",
+    "wcwidth._unwrap",
     "wcwidth.unicode_versions",
 ]
 
@@ -36,6 +37,7 @@ from ._clip import clip
 # convenience and others for legacy, only the items in '__all__' are documented as public API
 from .bisearch import bisearch as _bisearch
 from .textwrap import SequenceTextWrapper, wrap
+from ._unwrap import LogicalRecord, UnwrapResult, UnwrapSeam, WrapMarker, unwrap
 from .hyperlink import Hyperlink, HyperlinkParams
 from .linebreak import LineBreak, iter_line_breaks
 from ._constants import list_term_programs
@@ -112,9 +114,10 @@ from ._wcwidth import _wcmatch_version, _wcversion_value  # isort:skip  # pylint
 # 'from wcwidth import *', but also to say, "This is the public API".
 __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_graphemes',
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
-           'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
+           'ljust', 'rjust', 'center', 'wrap', 'unwrap', 'clip', 'strip_sequences',
            'list_versions', 'list_term_programs', 'propagate_sgr',
-           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
+           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams',
+           'WrapMarker', 'UnwrapSeam', 'LogicalRecord', 'UnwrapResult')
 
 # Version is stamped by code generation (bin/update-tables.py) from pyproject.toml.
 __version__ = '0.9.5'

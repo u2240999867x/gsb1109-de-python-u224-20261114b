@@ -3,6 +3,10 @@ History
 =======
 
 0.9.5 *unreleased*
+  * **New** `unwrap()`_, `WrapMarker`, `UnwrapSeam`, `LogicalRecord` and `UnwrapResult` reconstruct
+    logical records from a line-by-line screen transcript and its side-table capture widths and
+    wrap markers.  Full-width lines and unused layout cells never imply a soft wrap, missing markers
+    are reported as ambiguous seams, and supplying a marker rebuilds only the touched segment.
   * **New** `iter_line_breaks()`_ in Python and ``wcwidth_linebreak_breaks_u32()`` in libwcwidth,
     following `UAX #14`_ line breaking.  ``wcwidth_linebreak_breaks_u32()`` takes a ``hyphens``
     argument, and libwcwidth adds ``line_break`` and ``break_on_hyphens`` fields to
@@ -387,6 +391,7 @@ https://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c::
 .. _`rjust()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.rjust
 .. _`center()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.center
 .. _`wrap()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.wrap
+.. _`unwrap()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.unwrap
 .. _`clip()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.clip
 .. _`strip_sequences()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.strip_sequences
 .. _`propagate_sgr()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.propagate_sgr

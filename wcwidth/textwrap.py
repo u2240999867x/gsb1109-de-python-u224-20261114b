@@ -21,6 +21,7 @@ from .hyperlink import HyperlinkParams
 from .linebreak import _break_positions
 from .sgr_state import propagate_sgr as _propagate_sgr
 from .escape_sequences import ZERO_WIDTH_PATTERN, iter_sequences
+from ._unwrap import LogicalRecord, UnwrapResult, UnwrapSeam, WrapMarker, unwrap  # noqa: F401
 
 if os.environ.get('WCWIDTH_PYTHON', ''):
     # local
