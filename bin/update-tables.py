@@ -1,0 +1,3056 @@
+#!/usr/bin/env python
+"""
+Update the Unicode code tables for wcwidth.
+
+This is code generation using jinja2. This is typically executed through tox,
+
+$ tox -e update
+
+https://github.com/jquast/wcwidth
+"""
+
+from __future__ import annotations
+
+# std imports
+import io
+import os
+import re
+import sys
+import glob
+import string
+import hashlib
+import tomllib
+import zipfile
+import argparse
+import datetime
+import functools
+from pathlib import Path
+from dataclasses import field, fields, dataclass
+
+from typing import Any, Mapping, Iterable, Iterator, Optional, Sequence, Collection
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
+# 3rd party
+import yaml
+import jinja2
+import requests
+import urllib3.util
+import dateutil.parser
+
+try:
+    # 3rd party
+    from yaml import CSafeLoader as SafeLoader
+except ImportError:
+    # 3rd party
+    from yaml import SafeLoader
+
+
+EXCLUDE_VERSIONS = ['2.0.0', '2.1.2', '3.0.0', '3.1.0', '3.2.0', '4.0.0']
+
+PATH_UP = os.path.relpath(os.path.join(os.path.dirname(__file__), os.path.pardir))
+PATH_DATA = os.path.join(PATH_UP, 'data')
+PATH_TESTS = os.path.join(PATH_UP, 'tests')
+PATH_UCS_DETECT_DATA = os.path.join(PATH_UP, 'ucs-detect', 'data')
+# "wcwidth/bin/update-tables.py", even on Windows
+# not really a path, if the git repo isn't named "wcwidth"
+THIS_FILEPATH = ('wcwidth/' +
+                 Path(__file__).resolve().relative_to(Path(PATH_UP).resolve()).as_posix())
+
+JINJA_ENV = jinja2.Environment(
+    loader=jinja2.FileSystemLoader(os.path.join(PATH_UP, 'code_templates')),
+    keep_trailing_newline=True,
+    undefined=jinja2.StrictUndefined,
+    # No template renders HTML or XML, so autoescape is inert here; it is set
+    # to keep static analysis from flagging the default of autoescape=False.
+    autoescape=jinja2.select_autoescape(['html', 'xml']))
+UTC_NOW = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+
+CONNECT_TIMEOUT = int(os.environ.get('CONNECT_TIMEOUT', '10'))
+READ_TIMEOUT = int(os.environ.get('READ_TIMEOUT', '30'))
+FETCH_BLOCKSIZE = int(os.environ.get('FETCH_BLOCKSIZE', '4096'))
+MAX_RETRIES = int(os.environ.get('MAX_RETRIES', '10'))
+BACKOFF_FACTOR = float(os.environ.get('BACKOFF_FACTOR', '1.0'))
+
+# Global version string set by --draft CLI argument
+DRAFT_VERSION: 'Optional[UnicodeVersion]' = None
+
+# Global flag set by main() from --check-last-modified CLI argument.
+# When True, perform HTTP HEAD requests to check if remote files are newer.
+# Default is False because Unicode data files rarely change once published.
+CHECK_LAST_MODIFIED = False
+
+# Hangul Jamo is a decomposed form of Hangul Syllables, see
+# see https://www.unicode.org/faq/korean.html#3
+#     https://github.com/ridiculousfish/widecharwidth/pull/17
+#     https://github.com/jquast/ucs-detect/issues/9
+#     https://devblogs.microsoft.com/oldnewthing/20201009-00/?p=104351
+# "Conjoining Jamo are divided into three classes: L, V, T (Leading
+#  consonant, Vowel, Trailing consonant). A Hangul Syllable consists of
+#  <LV> or <LVT> sequences."
+HANGUL_JAMO_ZEROWIDTH = (
+    *range(0x1160, 0x1200),  # Hangul Jungseong Filler .. Hangul Jongseong Ssangnieun
+    *range(0xD7B0, 0xD800),  # Hangul Jungseong O-Yeo  .. Undefined Character of Hangul Jamo Extended-B
+)
+
+# Character names are parsed from UnicodeData.txt. Most characters are named outright in that file,
+# but two classes of name are only derived by rule, see UAX #44 "4.8 Name":
+HANGUL_JAMO_SHORT_L = ('G', 'GG', 'N', 'D', 'DD', 'R', 'M', 'B', 'BB', 'S', 'SS', '', 'J', 'JJ',
+                       'C', 'K', 'T', 'P', 'H')
+HANGUL_JAMO_SHORT_V = ('A', 'AE', 'YA', 'YAE', 'EO', 'E', 'YEO', 'YE', 'O', 'WA', 'WAE', 'OE',
+                       'YO', 'U', 'WEO', 'WE', 'WI', 'YU', 'EU', 'YI', 'I')
+HANGUL_JAMO_SHORT_T = ('', 'G', 'GG', 'GS', 'N', 'NJ', 'NH', 'D', 'L', 'LG', 'LM', 'LB', 'LS',
+                       'LT', 'LP', 'LH', 'M', 'B', 'BS', 'S', 'SS', 'NG', 'J', 'C', 'K', 'T',
+                       'P', 'H')
+HANGUL_SYLLABLE_BASE = 0xAC00
+# NR2, matched by prefix so that 'CJK Ideograph Extension A' resolves through 'CJK Ideograph'
+# and 'Tangut Ideograph Supplement' through 'Tangut Ideograph'.
+NAME_DERIVATION_PREFIXES = (
+    ('CJK Ideograph', 'CJK UNIFIED IDEOGRAPH-'),
+    ('Tangut Ideograph', 'TANGUT IDEOGRAPH-'),
+    ('Khitan Small Script', 'KHITAN SMALL SCRIPT CHARACTER-'),
+    ('Nushu Character', 'NUSHU CHARACTER-'),
+    ('Egyptian Hieroglyph', 'EGYPTIAN HIEROGLYPH-'),
+    ('Jurchen Character', 'JURCHEN CHARACTER-'),
+    ('Seal Character', 'SMALL SEAL CHARACTER-'),
+)
+
+# NR4, surrogate and private-use characters have no name at all.
+NAME_DERIVATION_UNNAMED = (
+    'Low Surrogate',
+    'Non Private Use High Surrogate',
+    'Plane 15 Private Use',
+    'Plane 16 Private Use',
+    'Private Use',
+    'Private Use High Surrogate',
+)
+
+# NR1, composed algorithmically from HANGUL_JAMO_SHORT_{L,V,T}.
+NAME_DERIVATION_ALGORITHMIC = ('Hangul Syllable',)
+
+# Variation Selector-15 and 16
+HEX_STR_VS15, HEX_STR_VS16 = ('FE0E', 'FE0F')
+
+# Grapheme Break Property values from UAX #29
+GRAPHEME_BREAK_PROPERTIES = (
+    'CR', 'LF', 'Control', 'Extend', 'ZWJ', 'Regional_Indicator',
+    'Prepend', 'SpacingMark', 'L', 'V', 'T', 'LV', 'LVT'
+)
+INCB_VALUES = ('Linker', 'Consonant', 'Extend')
+
+# Line Breaking classes from UAX #14, in the order used by generated tables.
+LINEBREAK_CLASSES = (
+    'BK', 'CR', 'LF', 'CM', 'NL', 'SG', 'WJ', 'ZW', 'GL', 'SP', 'ZWJ',
+    'B2', 'BA', 'BB', 'HY', 'HH', 'CB', 'CL', 'CP', 'EX', 'IN', 'NS',
+    'OP', 'QU', 'IS', 'NU', 'PO', 'PR', 'SY', 'AI', 'AK', 'AL', 'AP',
+    'AS', 'CJ', 'EB', 'EM', 'H2', 'H3', 'HL', 'ID', 'JL', 'JV', 'JT',
+    'RI', 'SA', 'VF', 'VI', 'XX',
+)
+LINEBREAK_VALUE = {name: value for value, name in enumerate(LINEBREAK_CLASSES)}
+
+# Terminal multiplexers (subterminals) depend on a host terminal for rendering; their
+# cursor-position reports from ucs-detect are not reliable indicators of display width.  Excluded
+# from wcstwidth() or term_program= argument processing.
+# See: https://www.jeffquast.com/post/perfecting-terminal-character-width-using-correction-tables/
+EXCLUDED_MULTIPLEXERS = {'gnu screen', 'libvterm', 'tmux', 'zellij'}
+
+
+def _bisearch(ucs, table):
+    """A copy of wcwwidth._bisearch."""
+    # to prevent having issues when depending on code that imports our generated code.
+    lbound = 0
+    ubound = len(table) - 1
+    if ucs < table[0][0] or ucs > table[ubound][1]:
+        return 0
+    while ubound >= lbound:
+        mid = (lbound + ubound) // 2
+        if ucs > table[mid][1]:
+            lbound = mid + 1
+        elif ucs < table[mid][0]:
+            ubound = mid - 1
+        else:
+            return 1
+    return 0
+
+
+@dataclass(order=True, frozen=True)
+class UnicodeVersion:
+    """A class for comparable unicode version."""
+
+    major: int
+    minor: int
+    micro: Optional[int]
+
+    @classmethod
+    def parse(cls, version_str: str) -> UnicodeVersion:
+        """
+        Parse a version string.
+
+        >>> UnicodeVersion.parse("14.0.0")
+        UnicodeVersion(major=14, minor=0, micro=0)
+        """
+        ver_ints = tuple(map(int, version_str.split(".")[:3]))
+        return cls(major=ver_ints[0], minor=ver_ints[1],
+                   micro=ver_ints[2] if len(ver_ints) > 2 else None)
+
+    def __str__(self) -> str:
+        """
+        >>> str(UnicodeVersion(12, 1, 0))
+        '12.1.0'
+        """
+        maybe_micro = ''
+        if self.micro is not None:
+            maybe_micro = f'.{self.micro}'
+        return f'{self.major}.{self.minor}{maybe_micro}'
+
+
+@dataclass(frozen=True)
+class TableEntry:
+    """An entry of a unicode table."""
+
+    code_range: Optional[tuple[int, int]]
+    properties: tuple[str, ...]
+    comment: str
+
+    def filter_by_category_width(self, wide: int) -> bool:
+        """
+        Return whether entry matches displayed width.
+
+        Parses both DerivedGeneralCategory.txt and EastAsianWidth.txt
+        """
+        if self.code_range is None:
+            return False
+        elif self.properties[0] == 'Sk':
+            if 'EMOJI MODIFIER' in self.comment:
+                # Standalone Fitzpatrick modifiers display as wide (2 cells).
+                # Zero-width when following an emoji base is handled contextually
+                # in wcswidth() and width().
+                return wide == 2
+            elif 'FULLWIDTH' in self.comment:
+                # Some codepoints in 'Sk' categories are fullwidth(!)
+                # at this time just 3, FULLWIDTH: CIRCUMFLEX ACCENT, GRAVE ACCENT, and MACRON
+                return wide == 2
+            else:
+                # the rest are narrow
+                return wide == 1
+        # Me Enclosing Mark
+        # Mn Nonspacing Mark
+        # Cf Format
+        # Zl Line Separator
+        # Zp Paragraph Separator
+        if self.properties[0] in ('Me', 'Mn', 'Mc', 'Cf', 'Zl', 'Zp'):
+            return wide == 0
+        # F  Fullwidth
+        # W  Wide
+        if self.properties[0] in ('W', 'F'):
+            return wide == 2
+        return wide == 1
+
+    @staticmethod
+    def parse_width_category_values(table_iter: Iterator[TableEntry],
+                                    wide: int) -> set[tuple[int, int]]:
+        """Parse value ranges of unicode data files, by given category and width."""
+        return {n
+                for entry in table_iter
+                if entry.filter_by_category_width(wide)
+                for n in list(range(entry.code_range[0], entry.code_range[1]))}
+
+
+@dataclass
+class TableDef:
+    filename: str
+    date: str
+    values: set[int]
+
+    def as_value_ranges(self) -> list[tuple[int, int]]:
+        """Return a list of tuple of (start, end) ranges for given set of 'values'."""
+        table: list[tuple[int, int]] = []
+        values_iter = iter(sorted(self.values))
+        start = end = next(values_iter)
+        table.append((start, end))
+
+        for value in values_iter:
+            # remove last-most entry for comparison,
+            start, end = table.pop()
+            if end == value - 1:
+                # continuation of existing range, rewrite
+                table.append((start, value,))
+            else:
+                # non-continuation: insert back previous range,
+                table.append((start, end,))
+                # and start a new one
+                table.append((value, value,))
+        return table
+
+    @property
+    def hex_range_descriptions(self) -> list[tuple[str, str, str]]:
+        """Convert integers into string table of (hex_start, hex_end, txt_description)."""
+        return _hex_range_descriptions(self.as_value_ranges())
+
+
+@dataclass(frozen=True)
+class RenderContext:
+    def to_dict(self) -> dict[str, Any]:
+        return {field.name: getattr(self, field.name)
+                for field in fields(self)}
+
+
+@dataclass(frozen=True)
+class UnicodeVersionPyRenderCtx(RenderContext):
+    versions: Collection[UnicodeVersion]
+
+
+@dataclass(frozen=True)
+class UnicodeTableRenderCtx(RenderContext):
+    variable_name: str
+    table: Mapping[UnicodeVersion, TableDef]
+
+
+@dataclass
+class RenderDefinition:
+    """Base class, do not instantiate it directly."""
+
+    jinja_filename: str
+    output_filename: str
+    render_context: RenderContext
+    _extra_context: dict[str, Any] = field(default_factory=dict)
+
+    _template: jinja2.Template = field(init=False, repr=False)
+    _render_context: dict[str, Any] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._template = JINJA_ENV.get_template(self.jinja_filename)
+        self._render_context = {
+            'utc_now': UTC_NOW,
+            'this_filepath': THIS_FILEPATH,
+            **self.render_context.to_dict(),
+            **self._extra_context,
+        }
+
+    def generate(self) -> Iterator[str]:
+        """Just like jinja2.Template.generate."""
+        return self._template.generate(self._render_context)
+
+    @property
+    def table_lengths(self) -> Mapping[str, int]:
+        """Symbol -> entry count, for the generated C header's length macros."""
+        return {}
+
+    @property
+    def header_context(self) -> Mapping[str, Any]:
+        """Extra render context this definition contributes to the generated C header."""
+        return {}
+
+
+@dataclass
+class UnicodeVersionPyRenderDef(RenderDefinition):
+    render_context: UnicodeVersionPyRenderCtx
+
+    @classmethod
+    def new(cls, context: UnicodeVersionPyRenderCtx) -> Self:
+        return cls(
+            jinja_filename='unicode_versions.py.j2',
+            output_filename=os.path.join(PATH_UP, 'wcwidth', 'unicode_versions.py'),
+            render_context=context,
+        )
+
+
+# Per-generated-language configuration: output directory and table templates.
+# The C symbol for a table is its Python variable name prefixed with 'prefix'.
+# Adding a language is one entry here plus its templates in code_templates/.
+LANGUAGES = {
+    '.py': {
+        'dir': 'wcwidth',
+        'table': 'python_table.py.j2',
+        'grapheme': 'grapheme_table.py.j2',
+        'linebreak': 'linebreak_table.py.j2',
+    },
+    '.c': {
+        'dir': os.path.join('libwcwidth', 'src', 'tables'),
+        'table': 'c_table.c.j2',
+        'grapheme': 'grapheme_table.c.j2',
+        'linebreak': 'linebreak_table.c.j2',
+        'prefix': 'WCWIDTH_',
+    },
+}
+
+
+@dataclass(frozen=True)
+class GcbClassTable:
+    """Grapheme cluster break classes, packed one nibble per codepoint as a paged table."""
+
+    C_NAME = 'WCWIDTH_GCB_CLASS'
+    BUDGET_BYTES = 64 * 1024
+    PAGE_SHIFTS = range(5, 14)
+
+    # Precedence order gcb_of() applied; the classes are disjoint under it.
+    SINGLE_CODEPOINTS = (('CR', 0x000D), ('LF', 0x000A), ('ZWJ', 0x200D))
+    RANGE_CLASSES = ('CONTROL', 'EXTEND', 'REGIONAL_INDICATOR', 'PREPEND',
+                     'SPACINGMARK', 'L', 'V', 'T', 'LV', 'LVT')
+
+    # gcb_t, from libwcwidth/src/grapheme.c.
+    VALUES = {
+        'OTHER': 0, 'CR': 1, 'LF': 2, 'CONTROL': 3, 'EXTEND': 4, 'ZWJ': 5,
+        'REGIONAL_INDICATOR': 6, 'PREPEND': 7, 'SPACINGMARK': 8, 'L': 9,
+        'V': 10, 'T': 11, 'LV': 12, 'LVT': 13,
+    }
+
+    lo: int
+    hi: int
+    nbytes: int
+    shift: int
+    pool_pages: int
+    index_rows: tuple[str, ...]
+    pool_rows: tuple[str, ...]
+
+    @property
+    def c_name(self) -> str:
+        return self.C_NAME
+
+    @property
+    def index_len(self) -> int:
+        return sum(row.count(',') for row in self.index_rows)
+
+    @property
+    def pool_len(self) -> int:
+        return sum(row.count(',') for row in self.pool_rows)
+
+    @property
+    def named_values(self) -> list[tuple[str, int]]:
+        return sorted(self.VALUES.items(), key=lambda item: item[1])
+
+    @classmethod
+    def build(cls, tables: Mapping[str, TableDef]) -> Self:
+        """Assign each codepoint its break class and pick the cheapest page size."""
+        nibbles, lo, hi = cls._pack(tables)
+        best = None
+        for shift in cls.PAGE_SHIFTS:
+            page_bytes = 1 << (shift - 1)
+            index, pool = cls._paginate(nibbles, page_bytes)
+            if len(pool) > 0x100:
+                continue
+            nbytes = len(index) + len(pool) * page_bytes
+            if best is not None and nbytes >= best.nbytes:
+                continue
+            best = cls(lo=lo, hi=hi, nbytes=nbytes, shift=shift, pool_pages=len(pool),
+                       index_rows=cls._rows(index), pool_rows=cls._rows(b''.join(pool)))
+        if best is None:
+            raise ValueError('no page size keeps the class pool within a uint8_t index')
+        print(f'  {cls.C_NAME}: shift={best.shift} pages={best.pool_pages}, {best.nbytes} bytes')
+        if best.nbytes > cls.BUDGET_BYTES:
+            raise ValueError(f'class table is {best.nbytes} bytes, over the '
+                             f'{cls.BUDGET_BYTES} byte budget')
+        return best
+
+    @classmethod
+    def _pack(cls, tables: Mapping[str, TableDef]) -> tuple[bytes, int, int]:
+        assigned: dict[int, int] = {}
+        for name, codepoint in cls.SINGLE_CODEPOINTS:
+            assigned[codepoint] = cls.VALUES[name]
+        for name in cls.RANGE_CLASSES:
+            value = cls.VALUES[name]
+            for start, end in tables['GRAPHEME_' + name].as_value_ranges():
+                for codepoint in range(start, end + 1):
+                    assigned.setdefault(codepoint, value)
+        lo, hi = min(assigned), max(assigned)
+        nibbles = bytearray((hi - lo + 2) // 2)
+        for codepoint, value in assigned.items():
+            offset = codepoint - lo
+            if offset & 1:
+                nibbles[offset >> 1] |= value << 4
+            else:
+                nibbles[offset >> 1] |= value
+        return bytes(nibbles), lo, hi
+
+    @staticmethod
+    def _paginate(payload: bytes, page_bytes: int) -> tuple[list[int], list[bytes]]:
+        # Page 0 is all-zero, shared by every page of class 0; identical pages collapse too.
+        zero = bytes(page_bytes)
+        pool = [zero]
+        seen = {zero: 0}
+        index = []
+        for offset in range(0, len(payload), page_bytes):
+            page = bytes(payload[offset:offset + page_bytes])
+            page += bytes(page_bytes - len(page))
+            number = seen.get(page)
+            if number is None:
+                number = len(pool)
+                seen[page] = number
+                pool.append(page)
+            index.append(number)
+        return index, pool
+
+    @staticmethod
+    def _rows(data: Iterable[int]) -> tuple[str, ...]:
+        per_row = 16
+        values = list(data)
+        return tuple(
+            '    ' + ' '.join(f'0x{value:02x},' for value in values[offset:offset + per_row])
+            for offset in range(0, len(values), per_row))
+
+
+@dataclass
+class UnicodeTableRenderDef(RenderDefinition):
+    render_context: UnicodeTableRenderCtx
+
+    @classmethod
+    def new(cls, filename: str, context: UnicodeTableRenderCtx) -> Self:
+        ext = os.path.splitext(filename)[1]
+        if ext not in LANGUAGES:
+            raise ValueError(f'no code generation language for {filename!r}')
+        lang = LANGUAGES[ext]
+        extra_context = {}
+        if 'prefix' in lang:
+            extra_context['c_name'] = lang['prefix'] + context.variable_name
+        return cls(
+            jinja_filename=lang['table'],
+            output_filename=os.path.join(PATH_UP, lang['dir'], filename),
+            render_context=context,
+            _extra_context=extra_context,
+        )
+
+    @property
+    def table_lengths(self) -> Mapping[str, int]:
+        """Symbol -> entry count, for the generated C header's length macros."""
+        c_name = self._extra_context.get('c_name')
+        if c_name is None:
+            return {}
+        latest = sorted(self.render_context.table)[-1]
+        return {c_name: len(self.render_context.table[latest].as_value_ranges())}
+
+
+@dataclass(frozen=True)
+class GraphemeTableRenderCtx(RenderContext):
+    """Render context for grapheme tables (latest version only)."""
+
+    unicode_version: str
+    tables: Mapping[str, TableDef]
+
+
+@dataclass
+class GraphemeTableRenderDef(RenderDefinition):
+    render_context: GraphemeTableRenderCtx
+
+    @classmethod
+    def new(cls, filename: str, context: GraphemeTableRenderCtx) -> Self:
+        ext = os.path.splitext(filename)[1]
+        if ext not in LANGUAGES:
+            raise ValueError(f'no code generation language for {filename!r}')
+        lang = LANGUAGES[ext]
+        extra_context = {}
+        if 'prefix' in lang:
+            extra_context['prefix'] = lang['prefix']
+        return cls(
+            jinja_filename=lang['grapheme'],
+            output_filename=os.path.join(PATH_UP, lang['dir'], filename),
+            render_context=context,
+            _extra_context=extra_context,
+        )
+
+    @property
+    def table_lengths(self) -> Mapping[str, int]:
+        """Symbol -> entry count, for the generated C header's length macros."""
+        prefix = self._extra_context.get('prefix')
+        if prefix is None:
+            return {}
+        return {prefix + var_name: len(table_def.as_value_ranges())
+                for var_name, table_def in self.render_context.tables.items()}
+
+
+@dataclass(frozen=True)
+class LineBreakClassTable:
+    """UAX #14 classes, one byte per codepoint as a paged table, plus the ASCII tables."""
+
+    C_NAME = 'WCWIDTH_LINEBREAK_CLASS'
+    BUDGET_BYTES = 64 * 1024
+    PAGE_SHIFTS = range(5, 14)
+    ASCII_LEN = 128
+
+    lo: int
+    hi: int
+    shift: int
+    index_rows: tuple[str, ...]
+    pool_rows: tuple[str, ...]
+    ascii_rows: tuple[str, ...]
+    ascii_resolved_rows: tuple[str, ...]
+
+    @property
+    def c_name(self) -> str:
+        return self.C_NAME
+
+    @property
+    def ascii_len(self) -> int:
+        return self.ASCII_LEN
+
+    @property
+    def min_hex(self) -> str:
+        return f'{self.lo:05X}'
+
+    @property
+    def max_hex(self) -> str:
+        return f'{self.hi:05X}'
+
+    @property
+    def index_len(self) -> int:
+        return sum(row.count(',') for row in self.index_rows)
+
+    @property
+    def pool_len(self) -> int:
+        return sum(row.count(',') for row in self.pool_rows)
+
+    @classmethod
+    def build(cls, ranges: Sequence[tuple[int, int, int]],
+              sa_cm: Sequence[tuple[int, int]]) -> Self:
+        """Pack every codepoint's class, then verify the paged lookup against the ranges."""
+        lo, hi = ranges[0][0], ranges[-1][1]
+        if lo != 0 or hi < cls.ASCII_LEN - 1:
+            raise ValueError('line break class ranges must cover ASCII')
+        payload = bytearray(hi - lo + 1)
+        for start, end, value in ranges:
+            payload[start - lo:end - lo + 1] = bytes([value]) * (end - start + 1)
+
+        ascii_raw = bytes(payload[:cls.ASCII_LEN])
+        ascii_resolved = bytes(cls._resolve(cp, value, sa_cm)
+                               for cp, value in enumerate(ascii_raw))
+
+        candidates = []
+        for shift in cls.PAGE_SHIFTS:
+            page_bytes = 1 << shift
+            index, pool = GcbClassTable._paginate(bytes(payload), page_bytes)
+            if len(pool) > 0x100:
+                continue
+            nbytes = len(index) + len(pool) * page_bytes
+            candidates.append((nbytes, shift, index, pool, page_bytes))
+        if not candidates:
+            raise ValueError('no page size keeps the class pool within a uint8_t index')
+        nbytes, shift, index, pool, page_bytes = min(candidates)
+        for ucs in range(lo, hi + 1):
+            offset = ucs - lo
+            got = pool[index[offset >> shift]][offset & (page_bytes - 1)]
+            if got != payload[offset]:
+                raise ValueError(f'class table mismatch at U+{ucs:04X}')
+        print(f'  {cls.C_NAME}: shift={shift} pages={len(pool)}, {nbytes} bytes')
+        if nbytes > cls.BUDGET_BYTES:
+            raise ValueError(f'class table is {nbytes} bytes, over the '
+                             f'{cls.BUDGET_BYTES} byte budget')
+        return cls(
+            lo=lo, hi=hi, shift=shift,
+            index_rows=GcbClassTable._rows(index),
+            pool_rows=GcbClassTable._rows(b''.join(pool)),
+            ascii_rows=GcbClassTable._rows(ascii_raw),
+            ascii_resolved_rows=GcbClassTable._rows(ascii_resolved),
+        )
+
+    @staticmethod
+    def _resolve(ucs: int, value: int, sa_cm: Sequence[tuple[int, int]]) -> int:
+        """Apply the LB1 resolution rules."""
+        if value in (LINEBREAK_VALUE['AI'], LINEBREAK_VALUE['SG'], LINEBREAK_VALUE['XX']):
+            return LINEBREAK_VALUE['AL']
+        if value == LINEBREAK_VALUE['CJ']:
+            return LINEBREAK_VALUE['NS']
+        if value == LINEBREAK_VALUE['SA']:
+            return LINEBREAK_VALUE['CM'] if _bisearch(ucs, sa_cm) else LINEBREAK_VALUE['AL']
+        return value
+
+
+@functools.cache
+def _linebreak_class_table(ranges: tuple[tuple[int, int, int], ...],
+                           sa_cm: tuple[tuple[int, int], ...]) -> LineBreakClassTable:
+    """Build the class table once, shared by the Python and C render definitions."""
+    return LineBreakClassTable.build(ranges, sa_cm)
+
+
+@dataclass(frozen=True)
+class LineBreakTableRenderCtx(RenderContext):
+    """Render context for UAX #14 line breaking tables (latest version only)."""
+
+    unicode_version: str
+    ranges: tuple[tuple[int, int, int], ...]
+    classes: tuple[str, ...]
+    pi_qu: tuple[tuple[int, int], ...]
+    pf_qu: tuple[tuple[int, int], ...]
+    sa_cm: tuple[tuple[int, int], ...]
+    east_asian: tuple[tuple[int, int], ...]
+    ext_pict_cn: tuple[tuple[int, int], ...]
+
+    @property
+    def named_values(self) -> tuple[tuple[str, int], ...]:
+        return tuple((name, value) for value, name in enumerate(self.classes))
+
+    @property
+    def class_table(self) -> LineBreakClassTable:
+        return _linebreak_class_table(self.ranges, self.sa_cm)
+
+
+@dataclass
+class LineBreakTableRenderDef(RenderDefinition):
+    render_context: LineBreakTableRenderCtx
+
+    @classmethod
+    def new(cls, filename: str, context: LineBreakTableRenderCtx) -> Self:
+        ext = os.path.splitext(filename)[1]
+        if ext not in LANGUAGES:
+            raise ValueError(f'no code generation language for {filename!r}')
+        lang = LANGUAGES[ext]
+        auxiliary = (
+            ('PI_QU', context.pi_qu, 'General_Category=Pi, Line_Break=QU'),
+            ('PF_QU', context.pf_qu, 'General_Category=Pf, Line_Break=QU'),
+            ('SA_CM', context.sa_cm, 'Line_Break=SA, General_Category Mn or Mc'),
+            ('EAST_ASIAN', context.east_asian, 'East_Asian_Width F, W or H'),
+            ('EXT_PICT_CN', context.ext_pict_cn, 'Extended_Pictographic, General_Category=Cn'),
+        )
+        return cls(
+            jinja_filename=lang['linebreak'],
+            output_filename=os.path.join(PATH_UP, lang['dir'], filename),
+            render_context=context,
+            _extra_context={'named_values': context.named_values,
+                            'auxiliary': auxiliary,
+                            'linebreak_class': context.class_table},
+        )
+
+    @property
+    def header_context(self) -> Mapping[str, Any]:
+        class_table = self.render_context.class_table
+        return {
+            'linebreak': {
+                'named_values': self.render_context.named_values,
+                'auxiliary': [(name, len(ranges))
+                              for name, ranges, _ in self._extra_context['auxiliary']],
+                'class_table': {
+                    'c_name': class_table.c_name,
+                    'min_hex': class_table.min_hex,
+                    'max_hex': class_table.max_hex,
+                    'shift': class_table.shift,
+                    'index_len': class_table.index_len,
+                    'pool_len': class_table.pool_len,
+                    'ascii_len': class_table.ascii_len,
+                },
+            },
+        }
+
+
+@dataclass(frozen=True)
+class CGcbClassRenderCtx(RenderContext):
+    gcb: GcbClassTable
+
+
+@dataclass
+class CGcbClassRenderDef(RenderDefinition):
+    render_context: CGcbClassRenderCtx
+
+    @classmethod
+    def new(cls, gcb_tables: Mapping[str, TableDef]) -> Self:
+        return cls(
+            jinja_filename='c_gcb_class.c.j2',
+            output_filename=os.path.join(PATH_UP, LANGUAGES['.c']['dir'], 'table_gcb_class.c'),
+            render_context=CGcbClassRenderCtx(gcb=GcbClassTable.build(gcb_tables)),
+        )
+
+    @property
+    def header_context(self) -> Mapping[str, Any]:
+        return {'gcb': self.render_context.gcb}
+
+
+@dataclass(frozen=True)
+class BitsetTable:
+    """One interval table packed as a two level bitset."""
+
+    c_name: str
+    lo: int
+    hi: int
+    index_rows: tuple[str, ...]
+    pool_rows: tuple[str, ...]
+    index_len: int
+    pool_len: int
+
+    @property
+    def min_hex(self) -> str:
+        return f'{self.lo:05X}'
+
+    @property
+    def max_hex(self) -> str:
+        return f'{self.hi:05X}'
+
+    @property
+    def index_text(self) -> str:
+        return '\n'.join(self.index_rows)
+
+    @property
+    def pool_text(self) -> str:
+        return '\n'.join(self.pool_rows)
+
+    @classmethod
+    def build(cls, c_name: str, ranges: Sequence[tuple[int, int]]) -> Self:
+        """Pack ranges into 256 codepoint pages and verify every entry."""
+        lo, hi = ranges[0][0], ranges[-1][1]
+        members: set[int] = set()
+        payload = bytearray((hi - lo + 8) // 8)
+        for start, end in ranges:
+            for ucs in range(start, end + 1):
+                members.add(ucs)
+                offset = ucs - lo
+                payload[offset >> 3] |= 1 << (offset & 7)
+        index, pool = GcbClassTable._paginate(bytes(payload), 32)
+        if len(pool) > 0x100:
+            raise ValueError(f'{c_name} page pool of {len(pool)} does not fit a uint8_t index')
+        for ucs in range(lo, hi + 1):
+            offset = ucs - lo
+            got = bool(pool[index[offset >> 8]][(offset & 0xFF) >> 3]
+                       & (1 << (offset & 7)))
+            if got != (ucs in members):
+                raise ValueError(f'{c_name} bitset mismatch at U+{ucs:04X}')
+        print(f'  {c_name}: {lo:#06x}..{hi:#06x}, {len(index)} pages, '
+              f'{len(pool)} pooled pages')
+        return cls(
+            c_name=c_name,
+            lo=lo,
+            hi=hi,
+            index_rows=GcbClassTable._rows(index),
+            pool_rows=GcbClassTable._rows(b''.join(pool)),
+            index_len=len(index),
+            pool_len=len(pool) * 32,
+        )
+
+
+@dataclass(frozen=True)
+class BitsetTablesRenderCtx(RenderContext):
+    tables: tuple[BitsetTable, ...]
+
+
+@dataclass
+class BitsetTablesRenderDef(RenderDefinition):
+    render_context: BitsetTablesRenderCtx
+
+    @classmethod
+    def new(cls, jinja_filename: str, output_filename: str,
+            context: BitsetTablesRenderCtx) -> Self:
+        return cls(
+            jinja_filename=jinja_filename,
+            output_filename=output_filename,
+            render_context=context,
+        )
+
+
+# Source contexts and C names for the converted tables.  The interval arrays stay
+# exported from wcwidth/tables.h; these bitsets are the internal hot lookups.
+BITSET_TABLES = (
+    ('ZERO_WIDTH', 'WCWIDTH_ZERO_WIDTH'),
+    ('WIDE_EASTASIAN', 'WCWIDTH_WIDE_EASTASIAN'),
+    ('AMBIGUOUS_EASTASIAN', 'WCWIDTH_AMBIGUOUS_EASTASIAN'),
+    ('CATEGORY_MC', 'WCWIDTH_CATEGORY_MC'),
+    ('VS16_NARROW_TO_WIDE', 'WCWIDTH_VS16_NARROW_TO_WIDE'),
+    ('VS15_WIDE_TO_NARROW', 'WCWIDTH_VS15_WIDE_TO_NARROW'),
+)
+BITSET_GRAPHEME_TABLES = (
+    ('EXTENDED_PICTOGRAPHIC', 'WCWIDTH_EXTENDED_PICTOGRAPHIC'),
+    ('INCB_CONSONANT', 'WCWIDTH_INCB_CONSONANT'),
+    ('INCB_EXTEND', 'WCWIDTH_INCB_EXTEND'),
+)
+
+
+def build_bitset_tables(
+        table_contexts: Mapping[str, UnicodeTableRenderCtx],
+        grapheme_context: GraphemeTableRenderCtx,
+        linebreak_context: LineBreakTableRenderCtx) -> BitsetTablesRenderCtx:
+    """Build every converted bitset from the fetched table definitions."""
+    tables = []
+    for variable_name, c_name in BITSET_TABLES:
+        context = table_contexts[variable_name]
+        latest = sorted(context.table)[-1]
+        tables.append(BitsetTable.build(c_name, context.table[latest].as_value_ranges()))
+    for variable_name, c_name in BITSET_GRAPHEME_TABLES:
+        tables.append(BitsetTable.build(
+            c_name, grapheme_context.tables[variable_name].as_value_ranges()))
+    tables.append(BitsetTable.build('WCWIDTH_LINEBREAK_EAST_ASIAN',
+                                    linebreak_context.east_asian))
+    tables.append(BitsetTable.build('WCWIDTH_LINEBREAK_SA_CM', linebreak_context.sa_cm))
+    return BitsetTablesRenderCtx(tuple(tables))
+
+
+def _project_version() -> str:
+    """Return the version from pyproject.toml, the source of truth."""
+    with open(os.path.join(PATH_UP, 'pyproject.toml'), 'rb') as fin:
+        return tomllib.load(fin)['project']['version']
+
+
+def _version_parts(version: str) -> tuple[int, int, int]:
+    """Return (major, minor, patch) from a version string, ignoring any pre-release suffix."""
+    # PEP 440 allows a pre-release suffix; the C macros are numeric, so they carry only
+    # the release segment, while WCWIDTH_VERSION keeps the full string.
+    match = re.match(r'^(\d+)\.(\d+)\.(\d+)', version)
+    if match is None:
+        raise ValueError(f'expected a MAJOR.MINOR.PATCH version, got {version!r}')
+    return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
+
+
+@dataclass(frozen=True)
+class WcwidthConfigRenderCtx(RenderContext):
+    version: str
+    version_major: int
+    version_minor: int
+    version_patch: int
+    unicode_version: str
+
+
+@dataclass
+class WcwidthConfigRenderDef(RenderDefinition):
+    render_context: WcwidthConfigRenderCtx
+
+    @classmethod
+    def new(cls, version: str, unicode_version: str) -> Self:
+        major, minor, patch = _version_parts(version)
+        return cls(
+            jinja_filename='wcwidth_config.h.j2',
+            output_filename=os.path.join(PATH_UP, 'libwcwidth', 'include', 'wcwidth',
+                                         'wcwidth_config.h'),
+            render_context=WcwidthConfigRenderCtx(version, major, minor, patch,
+                                                  unicode_version),
+        )
+
+
+@functools.cache
+def fetch_unicode_versions() -> list[UnicodeVersion]:
+    """Fetch, determine, and return Unicode Versions for processing."""
+    pattern = re.compile(r'#.*assigned in Unicode ([0-9.]+)')
+    versions: list[UnicodeVersion] = []
+    with open(UnicodeDataFile.DerivedAge(), encoding='utf-8') as f:
+        for line in f:
+            if match := re.match(pattern, line):
+                version = match.group(1)
+                if version not in EXCLUDE_VERSIONS:
+                    versions.append(UnicodeVersion.parse(version))
+    versions.sort()
+    if DRAFT_VERSION is not None:
+        latest = versions[-1]
+        if (latest.major, latest.minor) != (DRAFT_VERSION.major, DRAFT_VERSION.minor):
+            raise ValueError(
+                f'--draft={DRAFT_VERSION} requested, but {UnicodeDataFile.URL_DERIVED_AGE_DRAFT}'
+                f' describes Unicode {latest} as newest version. Are you sure this is a draft?')
+    return versions
+
+
+def fetch_table_wide_data() -> UnicodeTableRenderCtx:
+    """Fetch east-asian tables for the latest Unicode version only."""
+    table: dict[UnicodeVersion, TableDef] = {}
+    version = fetch_unicode_versions()[-1]  # Only latest version
+
+    # parse typical 'wide' characters by categories 'W' and 'F',
+    table[version] = parse_category(fname=UnicodeDataFile.EastAsianWidth(version),
+                                    wide=2)
+
+    # subtract(!) wide characters that were defined above as 'W' category in EastAsianWidth,
+    # but also zero-width category 'Mn' or 'Mc' in DerivedGeneralCategory!
+    table[version].values = table[version].values.difference(parse_category(
+        fname=UnicodeDataFile.DerivedGeneralCategory(version),
+        wide=0).values)
+
+    # Also subtract Hangul Jamo Vowels and Hangul Trailing Consonants
+    table[version].values = table[version].values.difference(HANGUL_JAMO_ZEROWIDTH)
+
+    # Subtract Default_Ignorable_Code_Point characters (they should be zero-width).
+    # Exception: U+115F HANGUL CHOSEONG FILLER remains wide for jamo composition.
+    # See https://github.com/jquast/wcwidth/issues/118
+    default_ignorable = set(parse_derived_core_property(
+        fname=UnicodeDataFile.DerivedCoreProperties(version),
+        property_name='Default_Ignorable_Code_Point'))
+    default_ignorable.discard(0x115F)  # Keep HANGUL CHOSEONG FILLER as wide
+    table[version].values = table[version].values.difference(default_ignorable)
+
+    # finally, join with atypical 'wide' characters defined by category 'Sk',
+    fname = UnicodeDataFile.DerivedGeneralCategory(version)
+    table[version].values.update(parse_category(fname=fname, wide=2).values)
+
+    # Add Regional Indicator symbols (U+1F1E6..U+1F1FF). Though classified as
+    # Neutral in EastAsianWidth.txt, terminals universally render these as
+    # double-width. Pairing (flag emoji) is handled contextually in wcswidth()
+    # and width().
+    table[version].values.update(range(0x1F1E6, 0x1F1FF + 1))
+
+    return UnicodeTableRenderCtx('WIDE_EASTASIAN', table)
+
+
+def fetch_table_zero_data() -> UnicodeTableRenderCtx:
+    """
+    Fetch zero width tables for the latest Unicode version only.
+
+    See also: https://unicode.org/L2/L2002/02368-default-ignorable.html
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    version = fetch_unicode_versions()[-1]  # Only latest version
+
+    # Determine values of zero-width character lookup table by the following category codes
+    fname = UnicodeDataFile.DerivedGeneralCategory(version)
+    table[version] = parse_category(fname=fname, wide=0)
+
+    # Include NULL
+    table[version].values.add(0)
+
+    # Add Hangul Jamo Vowels and Hangul Trailing Consonants
+    table[version].values.update(HANGUL_JAMO_ZEROWIDTH)
+
+    # Add Default_Ignorable_Code_Point characters
+    # Per Unicode Standard (https://www.unicode.org/faq/unsup_char.html):
+    # "All default-ignorable characters should be rendered as completely invisible
+    # (and non advancing, i.e. 'zero width'), if not explicitly supported in rendering."
+    #
+    # See also:
+    # - https://www.unicode.org/reports/tr44/#Default_Ignorable_Code_Point
+    # - https://github.com/jquast/wcwidth/issues/118
+    table[version].values.update(parse_derived_core_property(
+        fname=UnicodeDataFile.DerivedCoreProperties(version),
+        property_name='Default_Ignorable_Code_Point'))
+
+    # Remove U+115F HANGUL CHOSEONG FILLER from zero-width table.
+    # Although it has Default_Ignorable_Code_Point property, it should remain
+    # width 2 because it combines with other Hangul Jamo to form width-2
+    # syllable blocks.
+    table[version].values.discard(0x115F)
+
+    # Remove u+00AD categoryCode=Cf name="SOFT HYPHEN",
+    # > https://www.unicode.org/faq/casemap_charprop.html
+    #
+    # > Q: Unicode now treats the SOFT HYPHEN as format control (Cf)
+    # > character when formerly it was a punctuation character (Pd).
+    # > Doesn't this break ISO 8859-1 compatibility?
+    #
+    # > [..] In a terminal emulation environment, particularly in
+    # > ISO-8859-1 contexts, one could display the SOFT HYPHEN as a hyphen
+    # > in all circumstances.
+    #
+    # This value was wrongly measured as a width of '0' in this wcwidth
+    # versions 0.2.9 - 0.2.13. Fixed in 0.2.14
+    table[version].values.discard(0x00AD)  # SOFT HYPHEN
+
+    # Remove Prepended_Concatenation_Mark characters from zero-width.
+    # Per Unicode Standard Annex #44, these format characters (General_Category=Cf) have
+    # mandatory visible display and should NOT be treated as invisible.
+    # See https://github.com/jquast/wcwidth/issues/119
+    table[version].values = table[version].values.difference(
+        parse_derived_core_property(
+            fname=UnicodeDataFile.PropList(version),
+            property_name='Prepended_Concatenation_Mark'))
+
+    # Remove Emoji Modifier Fitzpatrick types (U+1F3FB..U+1F3FF) from zero-width.
+    # Standalone they display as wide (2 cells); they are only zero-width when
+    # following an emoji base character in sequence, handled contextually in
+    # wcswidth() and width().
+    table[version].values -= set(range(0x1F3FB, 0x1F3FF + 1))
+
+    return UnicodeTableRenderCtx('ZERO_WIDTH', table)
+
+
+def fetch_table_category_mc_data() -> UnicodeTableRenderCtx:
+    """
+    Fetch Spacing Combining Mark (Mc) character table for the latest Unicode version.
+
+    Characters with General_Category=Mc are combining marks that typically occupy a cell width when
+    following a base character, but should be zero-width when standalone. This table is used for
+    context-aware width measurement.
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    version = fetch_unicode_versions()[-1]
+
+    fname = UnicodeDataFile.DerivedGeneralCategory(version)
+    print(f'parsing {fname}, category=Mc: ', end='', flush=True)
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+        file_version = next(table_iter).comment.strip()
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+        values = {n
+                  for entry in table_iter
+                  if entry.code_range is not None and entry.properties[0] == 'Mc'
+                  for n in range(entry.code_range[0], entry.code_range[1])}
+    print('ok')
+    table[version] = TableDef(file_version, date, values)
+    return UnicodeTableRenderCtx('CATEGORY_MC', table)
+
+
+def _fetch_category_table_values(predicate) -> dict[UnicodeVersion, TableDef]:
+    """
+    Parse DerivedGeneralCategory.txt for categories matching *predicate*.
+
+    Only the latest Unicode version is produced; the C splitter needs the current character set, not
+    the version history.
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    version = fetch_unicode_versions()[-1]
+
+    fname = UnicodeDataFile.DerivedGeneralCategory(version)
+    print(f'parsing {fname}: ', end='', flush=True)
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+        file_version = next(table_iter).comment.strip()
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+        values = {n
+                  for entry in table_iter
+                  if entry.code_range is not None and predicate(entry.properties[0])
+                  for n in range(entry.code_range[0], entry.code_range[1])}
+    print('ok')
+    table[version] = TableDef(file_version, date, values)
+    return table
+
+
+def fetch_table_ambiguous_data() -> UnicodeTableRenderCtx:
+    """
+    Fetch east-asian ambiguous character table for the latest Unicode version.
+
+    East Asian Ambiguous (A) characters can display as either 1 cell (narrow) or 2 cells (wide)
+    depending on the terminal's configuration. This table allows users to opt-in to treating these
+    characters as wide by passing ambiguous_width=2 to wcwidth/wcswidth.
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    version = fetch_unicode_versions()[-1]
+    # parse 'ambiguous' characters by category 'A'
+    table[version] = parse_category_ambiguous(
+        fname=UnicodeDataFile.EastAsianWidth(version)
+    )
+    # Subtract zero-width characters (they should remain zero-width
+    # regardless of ambiguous_width setting)
+    table[version].values = table[version].values.difference(
+        parse_category(
+            fname=UnicodeDataFile.DerivedGeneralCategory(version),
+            wide=0
+        ).values
+    )
+    return UnicodeTableRenderCtx('AMBIGUOUS_EASTASIAN', table)
+
+
+def fetch_table_vs16_data() -> UnicodeTableRenderCtx:
+    """
+    Fetch and create a "narrow to wide variation-16" lookup table.
+
+    Characters in this table are all narrow, but when combined with a variation
+    selector-16 (\uFE0F), they become wide, for the given versions of unicode.
+
+    UNICODE_VERSION=9.0.0 or greater is required to enable detection of the effect
+    of *any* 'variation selector-16' narrow emoji becoming wide. Just two total
+    files are parsed to create ONE unicode version table supporting all
+    Unicode versions 9.0.0 and later.
+
+    Because of the ambiguity of versions in these early emoji data files, which
+    match unicode releases 8, 9, and 10, these specifications were mostly
+    implemented only in Terminals supporting Unicode 9.0 or later.
+
+    For that reason, and that **these values are not expected to change**,
+    If they do, a noticeable change would occur in `wcwidth/table_vs16.py`
+    falsely labeled under version 9.0 but is prevented by assertion.
+
+    One example, where v3.2 became v1.1 ("-" 12.0, "+" 15.1)::
+
+         -2620 FE0F  ; Basic_Emoji  ; skull and crossbones        #  3.2  [1] (☠️)
+         +2620 FE0F  ; emoji style; # (1.1) SKULL AND CROSSBONES
+
+    Or another discrepancy, published in unicode 12.0 as emoji version 5.2, but
+    missing entirely in the emoji-variation-sequences.txt published with unicode
+    version 15.1::
+
+        26F3 FE0E  ; text style;  # (5.2) FLAG IN HOLE
+
+    while some terminals display \\u0036\\uFE0F as a wide number one (kitty),
+    others display as ascii 1 with a no-effect zero-width (iTerm2) and others
+    have a strange narrow font corruption, I think it is fair to call these
+    ambiguous, no doubt in part because of these issues, see related
+    'ucs-detect' project.
+
+    Note that version 3.2 became 1.1, which would change unicode release of 9.0
+    to version 8.0.
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    unicode_latest = fetch_unicode_versions()[-1]
+
+    wide_tables = fetch_table_wide_data().table
+    unicode_version = UnicodeVersion.parse('9.0.0')
+
+    # parse table formatted by the latest emoji release (developed with
+    # 15.1.0) and parse a single file for all individual releases
+    table[unicode_version] = parse_vs_data(fname=UnicodeDataFile.EmojiVariationSequences(unicode_latest),
+                                           ubound_unicode_version=unicode_version,
+                                           hex_str_vs=HEX_STR_VS16)
+
+    # parse and join the final emoji release 12.0 of the earlier "type"
+    table[unicode_version].values.update(
+        parse_vs_data(fname=UnicodeDataFile.LegacyEmojiVariationSequences(),
+                      ubound_unicode_version=unicode_version,
+                      hex_str_vs=HEX_STR_VS16).values)
+
+    # perform culling on any values that are already understood as 'wide'
+    # without the variation-16 selector (use latest wide table)
+    wide_table = wide_tables[unicode_latest].as_value_ranges()
+    table[unicode_version].values = {
+        ucs for ucs in table[unicode_version].values
+        if not _bisearch(ucs, wide_table)
+    }
+
+    return UnicodeTableRenderCtx('VS16_NARROW_TO_WIDE', table)
+
+
+def fetch_table_vs15_data() -> UnicodeTableRenderCtx:
+    """
+    Fetch and create a "wide to narrow variation-15" lookup table.
+
+    Characters in this table are normally wide, but when combined with a variation
+    selector-15 (\\uFE0E), they become narrow. The table is built from ''text style''
+    entries in ``emoji-variation-sequences.txt``, filtered to only wide characters.
+
+    This mirrors ``fetch_table_vs16_data``, which builds the ''narrow to wide''
+    variation-16 table from ''emoji style'' entries.
+    """
+    table: dict[UnicodeVersion, TableDef] = {}
+    unicode_latest = fetch_unicode_versions()[-1]
+
+    wide_tables = fetch_table_wide_data().table
+    unicode_version = UnicodeVersion.parse('9.0.0')
+
+    # Parse FE0E (text style) entries from the latest emoji release
+    table[unicode_version] = parse_vs_data(
+        fname=UnicodeDataFile.EmojiVariationSequences(unicode_latest),
+        ubound_unicode_version=unicode_version,
+        hex_str_vs=HEX_STR_VS15)
+
+    # Parse and join the earlier-format emoji release
+    table[unicode_version].values.update(
+        parse_vs_data(fname=UnicodeDataFile.LegacyEmojiVariationSequences(),
+                      ubound_unicode_version=unicode_version,
+                      hex_str_vs=HEX_STR_VS15).values)
+
+    # Keep only characters that are already wide (width 2) -- these are the
+    # ones where VS15 has a narrowing effect. Narrow characters (width 1)
+    # stay narrow regardless.
+    wide_table = wide_tables[unicode_latest].as_value_ranges()
+    table[unicode_version].values = {
+        ucs for ucs in table[unicode_version].values
+        if _bisearch(ucs, wide_table)
+    }
+
+    return UnicodeTableRenderCtx('VS15_WIDE_TO_NARROW', table)
+
+
+def parse_vs_data(fname: str, ubound_unicode_version: UnicodeVersion, hex_str_vs: str):
+    with open(fname, encoding='utf-8') as fin:
+        table_iter = parse_vs_table(fin, hex_str_vs)
+        # pull "date string"
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+        # pull values only matching this unicode version and lower
+        values = {entry.code_range[0] for entry in table_iter}
+    return TableDef(ubound_unicode_version, date, values)
+
+
+@functools.cache
+def load_unicode_names() -> tuple[dict[int, str], tuple[tuple[int, int, str], ...],
+                                  dict[int, str]]:
+    """Parse character names of the latest unicode version from UnicodeData.txt."""
+    version = fetch_unicode_versions()[-1]
+    names: dict[int, str] = {}
+    derived_ranges: list[tuple[int, int, str]] = []
+    range_first: Optional[tuple[int, str]] = None
+    with open(UnicodeDataFile.UnicodeData(version), encoding='utf-8') as fin:
+        for line in fin:
+            fields = line.split(';')
+            if len(fields) < 2:
+                continue
+            ucs, name = int(fields[0], 16), fields[1]
+            if name.startswith('<'):
+                # A '<label, First>' line and its '<label, Last>' line bracket a range
+                label, _, marker = name[1:-1].rpartition(', ')
+                if marker == 'First':
+                    range_first = (ucs, label)
+                elif marker == 'Last' and range_first is not None:
+                    _check_name_derivation(range_first[0], ucs, range_first[1])
+                    derived_ranges.append((range_first[0], ucs, range_first[1]))
+                    range_first = None
+                continue
+            names[ucs] = name
+
+    control_aliases: dict[int, str] = {}
+    with open(UnicodeDataFile.NameAliases(version), encoding='utf-8') as fin:
+        for entry in parse_unicode_table(fin):
+            if entry.code_range is None:
+                continue
+            if len(entry.properties) > 1 and entry.properties[1] == 'control':
+                control_aliases.setdefault(entry.code_range[0], entry.properties[0])
+    return names, tuple(derived_ranges), control_aliases
+
+
+def _check_name_derivation(start: int, stop: int, label: str) -> None:
+    """
+    Assert a UnicodeData.txt '<label, First>' range has a known UAX #44 "4.8 Name" derivation.
+
+    Each new unicode version may introduce ranges, and a range whose label is unrecognized would
+    otherwise be silently rendered as a nameless '(nil)' table comment.  Fail the table build
+    instead, so that the new label is classified deliberately.
+    """
+    if label in NAME_DERIVATION_ALGORITHMIC or label in NAME_DERIVATION_UNNAMED:
+        return
+    if any(label.startswith(prefix_label) for prefix_label, _ in NAME_DERIVATION_PREFIXES):
+        return
+    raise ValueError(
+        f"UnicodeData.txt range '<{label}, First>' (U+{start:04X}..U+{stop:04X}) has no name "
+        f'derivation rule.  Consult UAX #44 "4.8 Name" and add {label!r} to one of '
+        f'NAME_DERIVATION_PREFIXES (NR2), NAME_DERIVATION_UNNAMED (NR4), or '
+        f'NAME_DERIVATION_ALGORITHMIC (NR1).')
+
+
+def name_ucs(ucs: str) -> str:
+    """Return the capitalized name of a character, or None where it has no name."""
+    return string.capwords(_name_of(ord(ucs))) if _name_of(ord(ucs)) else None
+
+
+def _name_of(value: int) -> Optional[str]:
+    names, derived_ranges, control_aliases = load_unicode_names()
+    if (name := names.get(value)) is not None:
+        return name
+    for start, stop, label in derived_ranges:
+        if not start <= value <= stop:
+            continue
+        if label in NAME_DERIVATION_ALGORITHMIC:
+            # NR1
+            idx = value - HANGUL_SYLLABLE_BASE
+            return ('HANGUL SYLLABLE '
+                    + HANGUL_JAMO_SHORT_L[idx // 588]
+                    + HANGUL_JAMO_SHORT_V[(idx % 588) // 28]
+                    + HANGUL_JAMO_SHORT_T[idx % 28])
+        for prefix_label, prefix in NAME_DERIVATION_PREFIXES:
+            # NR2
+            if label.startswith(prefix_label):
+                return f'{prefix}{value:04X}'
+        # NR4, surrogate and private-use ranges; _check_name_derivation() has already
+        # rejected any label that reaches here without being one of them.
+        return None
+    return control_aliases.get(value)
+
+
+def parse_unicode_table(file: Iterable[str]) -> Iterator[TableEntry]:
+    """
+    Parse unicode tables.
+
+    See details: https://www.unicode.org/reports/tr44/#Format_Conventions
+    """
+    for line in file:
+        data, _, comment = line.partition('#')
+        data_fields: Iterator[str] = (field.strip() for field in data.split(';'))
+        code_points_str, *properties = data_fields
+
+        if not code_points_str:
+            yield TableEntry(None, tuple(properties), comment)
+            continue
+
+        if '..' in code_points_str:
+            start, end = code_points_str.split('..')
+        else:
+            start = end = code_points_str
+        code_range = (int(start, base=16), int(end, base=16) + 1)
+
+        yield TableEntry(code_range, tuple(properties), comment)
+
+
+def parse_vs_table(fp: Iterable[str], hex_str_vs: str = 'FE0F') -> Iterator[TableEntry]:
+    """Parse emoji-variation-sequences.txt for codepoints that precede `hex_str_vs`."""
+    for line in fp:
+        data, _, comment = line.partition('#')
+        data_fields: Iterator[str] = (field.strip() for field in data.split(';'))
+        code_points_str, *properties = data_fields
+
+        if not code_points_str:
+            if 'Date' in comment:
+                # yield 'Data'
+                yield TableEntry(None, tuple(properties), comment)
+            continue
+        code_points = code_points_str.split()
+        if len(code_points) == 2 and code_points[1] == hex_str_vs:
+            # yield a single "code range" entry for a single value that precedes hex_str_vs
+            yield TableEntry((int(code_points[0], 16), int(code_points[0], 16)), tuple(properties), comment)
+
+
+@functools.cache
+def parse_category(fname: str, wide: int) -> TableDef:
+    """Parse value ranges of unicode data files, by given categories into string tables."""
+    print(f'parsing {fname}, wide={wide}: ', end='', flush=True)
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+
+        # pull "version string" from first line of source file
+        version = next(table_iter).comment.strip()
+        # and "date string" from second line
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+        values = TableEntry.parse_width_category_values(table_iter, wide)
+    print('ok')
+    return TableDef(version, date, values)
+
+
+@functools.cache
+def parse_category_ambiguous(fname: str) -> TableDef:
+    """Parse EastAsianWidth.txt for 'A' (Ambiguous) category."""
+    print(f'parsing {fname}, category=A: ', end='', flush=True)
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+
+        # pull "version string" from first line of source file
+        version = next(table_iter).comment.strip()
+        # and "date string" from second line
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+        values = {
+            n
+            for entry in table_iter
+            if entry.code_range is not None and entry.properties[0] == 'A'
+            for n in range(entry.code_range[0], entry.code_range[1])
+        }
+    print('ok')
+    return TableDef(version, date, values)
+
+
+def parse_grapheme_break_properties(fname: str) -> dict[str, TableDef]:
+    """Parse GraphemeBreakProperty.txt for grapheme break properties needing tables."""
+    print(f'parsing {fname}: ', end='', flush=True)
+    values_by_prop: dict[str, set[int]] = {prop: set() for prop in GRAPHEME_BREAK_PROPERTIES}
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+        version = next(table_iter).comment.strip()
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+
+        for entry in table_iter:
+            if entry.code_range is None:
+                continue
+            if entry.properties and entry.properties[0] in values_by_prop:
+                values_by_prop[entry.properties[0]].update(
+                    range(entry.code_range[0], entry.code_range[1])
+                )
+
+    print('ok')
+    return {
+        f'GRAPHEME_{prop.upper()}': TableDef(version, date, values)
+        for prop, values in values_by_prop.items()
+    }
+
+
+def _parse_range_property_file(fname: str) -> Iterator[tuple[int, int, str]]:
+    """Yield (start, end, value) from a Unicode 'range ; value' property file."""
+    with open(fname, encoding='utf-8') as f:
+        for line in f:
+            data, _, _ = line.partition('#')
+            data = data.strip()
+            if not data:
+                continue
+            field, value = (part.strip() for part in data.split(';')[:2])
+            if '..' in field:
+                start, end = field.split('..')
+            else:
+                start = end = field
+            yield int(start, 16), int(end, 16), value
+
+
+def _values_to_ranges(values: Iterable[int]) -> tuple[tuple[int, int], ...]:
+    """Convert a set of codepoints to sorted, non-overlapping (start, end) ranges."""
+    ordered = sorted(values)
+    if not ordered:
+        return ()
+    ranges = []
+    start = previous = ordered[0]
+    for value in ordered[1:]:
+        if value == previous + 1:
+            previous = value
+            continue
+        ranges.append((start, previous))
+        start = previous = value
+    ranges.append((start, previous))
+    return tuple(ranges)
+
+
+@functools.cache
+def parse_line_break_properties(fname: str) -> tuple[tuple[int, int, int], ...]:
+    """Parse LineBreak.txt into contiguous (start, end, class) ranges."""
+    print(f'parsing {fname}: ', end='', flush=True)
+    default = LINEBREAK_VALUE['XX']
+    ranges = []
+    with open(fname, encoding='utf-8') as f:
+        for line in f:
+            if line.startswith('# @missing:'):
+                _, value = (part.strip() for part in
+                            line.split(':', 1)[1].split('#')[0].split(';')[:2])
+                default = LINEBREAK_VALUE[value]
+                continue
+            data, _, _ = line.partition('#')
+            data = data.strip()
+            if not data:
+                continue
+            field, value = (part.strip() for part in data.split(';')[:2])
+            if '..' in field:
+                start, end = field.split('..')
+            else:
+                start = end = field
+            ranges.append((int(start, 16), int(end, 16), LINEBREAK_VALUE[value]))
+    ranges.sort()
+    filled = []
+    cursor = 0
+    for start, end, value in ranges:
+        if start > cursor:
+            filled.append((cursor, start - 1, default))
+        filled.append((start, end, value))
+        cursor = end + 1
+    if cursor <= 0x10FFFF:
+        filled.append((cursor, 0x10FFFF, default))
+    merged = []
+    for start, end, value in filled:
+        if merged and merged[-1][2] == value and merged[-1][1] + 1 == start:
+            merged[-1] = (merged[-1][0], end, value)
+        else:
+            merged.append((start, end, value))
+    print('ok')
+    return tuple(merged)
+
+
+def parse_line_break_auxiliary(version: str) -> tuple[
+        tuple[tuple[int, int], ...], tuple[tuple[int, int], ...],
+        tuple[tuple[int, int], ...], tuple[tuple[int, int], ...],
+        tuple[tuple[int, int], ...]]:
+    """Return the auxiliary properties needed by the UAX #14 rules."""
+    lb_ranges = parse_line_break_properties(UnicodeDataFile.LineBreak(version))
+    qu = set()
+    sa = set()
+    for start, end, value in lb_ranges:
+        if value == LINEBREAK_VALUE['QU']:
+            qu.update(range(start, end + 1))
+        elif value == LINEBREAK_VALUE['SA']:
+            sa.update(range(start, end + 1))
+
+    pi = set()
+    pf = set()
+    cm = set()
+    cn = []
+    for start, end, category in _parse_range_property_file(
+            UnicodeDataFile.DerivedGeneralCategory(version)):
+        if category == 'Pi':
+            pi.update(range(start, end + 1))
+        elif category == 'Pf':
+            pf.update(range(start, end + 1))
+        elif category in ('Mn', 'Mc'):
+            cm.update(range(start, end + 1))
+        elif category == 'Cn':
+            cn.append((start, end))
+
+    east_asian = tuple(
+        (start, end)
+        for start, end, value in _parse_range_property_file(
+            UnicodeDataFile.EastAsianWidth(version))
+        if value in ('F', 'W', 'H')
+    )
+    ext_pict = parse_extended_pictographic(UnicodeDataFile.EmojiData(version)).values
+    ext_cn = {cp for cp in ext_pict if _bisearch(cp, cn)}
+
+    return (_values_to_ranges(pi & qu), _values_to_ranges(pf & qu),
+            _values_to_ranges(sa & cm), east_asian, _values_to_ranges(ext_cn))
+
+
+def parse_extended_pictographic(fname: str) -> TableDef:
+    """Parse emoji-data.txt for Extended_Pictographic property."""
+    print(f'parsing {fname} for Extended_Pictographic: ', end='', flush=True)
+    values: set[int] = set()
+
+    with open(fname, encoding='utf-8') as f:
+        table_iter = parse_unicode_table(f)
+        # pull "version string" from first line of source file
+        version = next(table_iter).comment.strip()
+        # and "date string" from second line
+        date = next(table_iter).comment.split(':', 1)[1].strip()
+
+        for entry in table_iter:
+            if entry.code_range is None:
+                continue
+            if entry.properties and entry.properties[0] == 'Extended_Pictographic':
+                values.update(range(entry.code_range[0], entry.code_range[1]))
+
+    print('ok')
+    return TableDef(version, date, values)
+
+
+def parse_indic_conjunct_breaks(fname: str) -> dict[str, TableDef]:
+    """Parse DerivedCoreProperties.txt for all Indic_Conjunct_Break properties."""
+    print(f'parsing {fname} for InCB: ', end='', flush=True)
+    values_by_incb: dict[str, set[int]] = {val: set() for val in INCB_VALUES}
+
+    with open(fname, encoding='utf-8') as f:
+        for line in f:
+            data, _, comment = line.partition('#')
+            data = data.strip()
+            if not data:
+                continue
+
+            parts = [p.strip() for p in data.split(';')]
+            if len(parts) < 3:
+                continue
+
+            code_points_str, prop_name, prop_value = parts[0], parts[1], parts[2]
+
+            if prop_name == 'InCB' and prop_value in values_by_incb:
+                if '..' in code_points_str:
+                    start, end = code_points_str.split('..')
+                    values_by_incb[prop_value].update(
+                        range(int(start, 16), int(end, 16) + 1)
+                    )
+                else:
+                    values_by_incb[prop_value].add(int(code_points_str, 16))
+
+    print('ok')
+    return {
+        f'INCB_{val.upper()}': TableDef('DerivedCoreProperties', 'see file', values)
+        for val, values in values_by_incb.items()
+    }
+
+
+# ISC_CONSONANT is generated for the public API but not used by the runtime.
+# Virama and Invisible_Stacker are zero-width combining marks (Mn) that drive
+# virama-conjunct handling: Python merges them as _ISC_VIRAMA_SET, and the C
+# runtime bisearches the generated ISC tables via wcwidth_is_virama().
+ISC_VALUES = ('Consonant', 'Virama', 'Invisible_Stacker')
+
+
+def parse_indic_syllabic_category(fname: str) -> dict[str, TableDef]:
+    """
+    Parse IndicSyllabicCategory.txt for Consonant property.
+
+    See https://www.unicode.org/reports/tr44/#Indic_Syllabic_Category
+    """
+    print(f'parsing {fname} for ISC: ', end='', flush=True)
+    values_by_isc: dict[str, set[int]] = {val: set() for val in ISC_VALUES}
+
+    with open(fname, encoding='utf-8') as f:
+        for line in f:
+            data, _, comment = line.partition('#')
+            data = data.strip()
+            if not data:
+                continue
+
+            parts = [p.strip() for p in data.split(';')]
+            if len(parts) < 2:
+                continue
+
+            code_points_str, prop_value = parts[0], parts[1]
+
+            if prop_value in values_by_isc:
+                if '..' in code_points_str:
+                    start, end = code_points_str.split('..')
+                    values_by_isc[prop_value].update(
+                        range(int(start, 16), int(end, 16) + 1)
+                    )
+                else:
+                    values_by_isc[prop_value].add(int(code_points_str, 16))
+
+    print('ok')
+    return {
+        f'ISC_{val.upper()}': TableDef('IndicSyllabicCategory', 'see file', values)
+        for val, values in values_by_isc.items()
+    }
+
+
+@functools.lru_cache(maxsize=None)
+def parse_derived_core_property(fname: str, property_name: str) -> set[int]:
+    """Parse DerivedCoreProperties.txt for a specific property."""
+    print(f'parsing {fname} for {property_name}: ', end='', flush=True)
+    values: set[int] = set()
+
+    with open(fname, encoding='utf-8') as f:
+        for line in f:
+            data, _, comment = line.partition('#')
+            data = data.strip()
+            if not data:
+                continue
+
+            parts = [p.strip() for p in data.split(';')]
+            if len(parts) < 2:
+                continue
+
+            code_points_str, prop_name = parts[0], parts[1]
+
+            if prop_name == property_name:
+                if '..' in code_points_str:
+                    start, end = code_points_str.split('..')
+                    values.update(range(int(start, 16), int(end, 16) + 1))
+                else:
+                    values.add(int(code_points_str, 16))
+
+    print('ok')
+    return values
+
+
+def fetch_table_grapheme_data() -> GraphemeTableRenderCtx:
+    """Fetch grapheme break property tables for the latest Unicode version only."""
+    latest_version = fetch_unicode_versions()[-1]
+
+    # makes a table definition for each break property
+    tables = parse_grapheme_break_properties(
+        UnicodeDataFile.GraphemeBreakProperty(latest_version)
+    )
+    tables['EXTENDED_PICTOGRAPHIC'] = parse_extended_pictographic(
+        UnicodeDataFile.EmojiData(latest_version)
+    )
+    tables.update(parse_indic_conjunct_breaks(
+        UnicodeDataFile.DerivedCoreProperties(latest_version)
+    ))
+    tables.update(parse_indic_syllabic_category(
+        UnicodeDataFile.IndicSyllabicCategory(latest_version)
+    ))
+    return GraphemeTableRenderCtx(str(latest_version), tables)
+
+
+def fetch_table_linebreak_data() -> LineBreakTableRenderCtx:
+    """Fetch the UAX #14 line breaking table for the latest Unicode version only."""
+    latest_version = fetch_unicode_versions()[-1]
+    ranges = parse_line_break_properties(UnicodeDataFile.LineBreak(latest_version))
+    pi_qu, pf_qu, sa_cm, east_asian, ext_pict_cn = parse_line_break_auxiliary(
+        str(latest_version))
+    return LineBreakTableRenderCtx(
+        unicode_version=str(latest_version),
+        ranges=ranges,
+        classes=LINEBREAK_CLASSES,
+        pi_qu=pi_qu,
+        pf_qu=pf_qu,
+        sa_cm=sa_cm,
+        east_asian=east_asian,
+        ext_pict_cn=ext_pict_cn,
+    )
+
+
+class UnicodeDataFile:
+    """
+    Helper class for fetching Unicode Data Files.
+
+    Methods like 'DerivedAge' return a local filename, but have the side-effect of fetching those
+    files from unicode.org first, if not existing or out-of-date.
+
+    Because file modification times are used, for local files of TestEmojiZWJSequences and
+    TestEmojiVariationSequences, these files should be forcefully re-fetched CLI argument '--no-
+    check-last-modified'.
+    """
+
+    URL_UNICODE_DATA = 'https://www.unicode.org/Public/{version}/ucd/UnicodeData.txt'
+    URL_NAME_ALIASES = 'https://www.unicode.org/Public/{version}/ucd/NameAliases.txt'
+    URL_DERIVED_AGE = 'https://www.unicode.org/Public/UCD/latest/ucd/DerivedAge.txt'
+    URL_DERIVED_AGE_DRAFT = 'https://www.unicode.org/Public/draft/ucd/DerivedAge.txt'
+    URL_EASTASIAN_WIDTH = 'https://www.unicode.org/Public/{version}/ucd/EastAsianWidth.txt'
+    URL_DERIVED_CATEGORY = 'https://www.unicode.org/Public/{version}/ucd/extracted/DerivedGeneralCategory.txt'
+    URL_EMOJI_VARIATION = 'https://unicode.org/Public/{version}/ucd/emoji/emoji-variation-sequences.txt'
+    URL_LEGACY_VARIATION = 'https://unicode.org/Public/emoji/{version}/emoji-variation-sequences.txt'
+    URL_EMOJI_ZWJ = 'https://unicode.org/Public/emoji/{version}/emoji-zwj-sequences.txt'
+    URL_EMOJI_ZWJ_DRAFT = 'https://www.unicode.org/Public/draft/emoji/emoji-zwj-sequences.txt'
+    URL_GRAPHEME_BREAK = 'https://www.unicode.org/Public/{version}/ucd/auxiliary/GraphemeBreakProperty.txt'
+    URL_EMOJI_DATA = 'https://www.unicode.org/Public/{version}/ucd/emoji/emoji-data.txt'
+    URL_DERIVED_CORE_PROPS = 'https://www.unicode.org/Public/{version}/ucd/DerivedCoreProperties.txt'
+    URL_PROP_LIST = 'https://www.unicode.org/Public/{version}/ucd/PropList.txt'
+    URL_GRAPHEME_BREAK_TEST = 'https://www.unicode.org/Public/{version}/ucd/auxiliary/GraphemeBreakTest.txt'
+    URL_LINE_BREAK = 'https://www.unicode.org/Public/{version}/ucd/LineBreak.txt'
+    URL_LINE_BREAK_TEST = 'https://www.unicode.org/Public/{version}/ucd/auxiliary/LineBreakTest.txt'
+    URL_INDIC_SYLLABIC_CATEGORY = 'https://www.unicode.org/Public/{version}/ucd/IndicSyllabicCategory.txt'
+    URL_UDHR_ZIP = 'http://efele.net/udhr/assemblies/udhr_txt.zip'
+
+    @classmethod
+    def UnicodeData(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'UnicodeData-{version}.txt')
+        cls.do_retrieve(url=cls.URL_UNICODE_DATA.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def NameAliases(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'NameAliases-{version}.txt')
+        cls.do_retrieve(url=cls.URL_NAME_ALIASES.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def DerivedAge(cls) -> str:
+        if DRAFT_VERSION is not None:
+            fname = os.path.join(PATH_DATA, f'DerivedAge-{DRAFT_VERSION}-draft.txt')
+            cls.do_retrieve(url=cls.URL_DERIVED_AGE_DRAFT, fname=fname)
+            return fname
+        fname = os.path.join(PATH_DATA, 'DerivedAge.txt')
+        cls.do_retrieve(url=cls.URL_DERIVED_AGE, fname=fname)
+        return fname
+
+    @classmethod
+    def EastAsianWidth(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'EastAsianWidth-{version}.txt')
+        cls.do_retrieve(url=cls.URL_EASTASIAN_WIDTH.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def DerivedGeneralCategory(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'DerivedGeneralCategory-{version}.txt')
+        cls.do_retrieve(url=cls.URL_DERIVED_CATEGORY.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def EmojiVariationSequences(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'emoji-variation-sequences-{version}.txt')
+        cls.do_retrieve(url=cls.URL_EMOJI_VARIATION.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def LegacyEmojiVariationSequences(cls) -> str:
+        version = "12.0"
+        fname = os.path.join(PATH_DATA, f'emoji-variation-sequences-{version}.0.txt')
+        cls.do_retrieve(url=cls.URL_LEGACY_VARIATION.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def TestEmojiVariationSequences(cls) -> str:
+        version = fetch_unicode_versions()[-1]
+        fname = os.path.join(PATH_TESTS, 'emoji-variation-sequences.txt')
+        cls.do_retrieve(url=cls.URL_EMOJI_VARIATION.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def TestEmojiZWJSequences(cls) -> str:
+        # ZWJ sequences are only at /Public/emoji/{version}/, use 'latest' for tests, there is
+        # no /Public/emoji/{next_version}/ folder before release, only /Public/draft/emoji/.
+        fname = os.path.join(PATH_TESTS, 'emoji-zwj-sequences.txt')
+        url = (cls.URL_EMOJI_ZWJ_DRAFT if DRAFT_VERSION is not None
+               else cls.URL_EMOJI_ZWJ.format(version='latest'))
+        cls.do_retrieve(url=url, fname=fname)
+        return fname
+
+    @classmethod
+    def GraphemeBreakProperty(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'GraphemeBreakProperty-{version}.txt')
+        cls.do_retrieve(url=cls.URL_GRAPHEME_BREAK.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def LineBreak(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'LineBreak-{version}.txt')
+        cls.do_retrieve(url=cls.URL_LINE_BREAK.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def EmojiData(cls, version: UnicodeVersion) -> str:
+        """Fetch emoji-data.txt for Extended_Pictographic property."""
+        fname = os.path.join(PATH_DATA, f'emoji-data-{version}.txt')
+        cls.do_retrieve(url=cls.URL_EMOJI_DATA.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def DerivedCoreProperties(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'DerivedCoreProperties-{version}.txt')
+        cls.do_retrieve(url=cls.URL_DERIVED_CORE_PROPS.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def PropList(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'PropList-{version}.txt')
+        cls.do_retrieve(url=cls.URL_PROP_LIST.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def IndicSyllabicCategory(cls, version: str) -> str:
+        fname = os.path.join(PATH_DATA, f'IndicSyllabicCategory-{version}.txt')
+        cls.do_retrieve(url=cls.URL_INDIC_SYLLABIC_CATEGORY.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def TestGraphemeBreakTest(cls) -> str:
+        version = fetch_unicode_versions()[-1]
+        fname = os.path.join(PATH_TESTS, 'GraphemeBreakTest.txt')
+        cls.do_retrieve(url=cls.URL_GRAPHEME_BREAK_TEST.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def TestLineBreakTest(cls) -> str:
+        version = fetch_unicode_versions()[-1]
+        fname = os.path.join(PATH_TESTS, 'LineBreakTest.txt')
+        cls.do_retrieve(url=cls.URL_LINE_BREAK_TEST.format(version=version), fname=fname)
+        return fname
+
+    @classmethod
+    def UDHRCombined(cls) -> str:
+        """
+        Fetch UDHR zip, extract and combine all translations into a single file.
+
+        Downloads http://efele.net/udhr/assemblies/udhr_txt.zip, extracts the text files,
+        and combines them with '--' separator between translations.
+        """
+        fname = os.path.join(PATH_TESTS, 'udhr_combined.txt')
+        cls.do_retrieve_udhr_combined(url=cls.URL_UDHR_ZIP, fname=fname)
+        return fname
+
+    @staticmethod
+    def do_retrieve_udhr_combined(url: str, fname: str) -> None:
+        """Fetch UDHR zip file, extract, and combine all translations."""
+        if not UnicodeDataFile.is_url_newer(url, fname):
+            return
+
+        session = UnicodeDataFile.get_http_session()
+        print(f"fetching {url}: ", end='', flush=True)
+        resp = session.get(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        resp.raise_for_status()
+        print('ok')
+
+        print(f"extracting and combining to {fname}: ", end='', flush=True)
+        combined_content = []
+        with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+            txt_files = sorted([n for n in zf.namelist() if n.endswith('.txt')])
+            for txt_name in txt_files:
+                with zf.open(txt_name) as f:
+                    content = f.read().decode('utf-8').rstrip()
+                    combined_content.append(f'----\n\n{content}\n')
+
+        folder = os.path.dirname(fname)
+        if folder and not os.path.exists(folder):
+            os.makedirs(folder)
+
+        with open(fname, 'w', encoding='utf-8', newline='\n') as fout:
+            fout.writelines(combined_content)
+        print('ok')
+
+    @staticmethod
+    def do_retrieve(url: str, fname: str) -> None:
+        """Retrieve given url to target filepath fname."""
+        folder = os.path.dirname(fname)
+        if folder and not os.path.exists(folder):
+            os.makedirs(folder)
+        if not UnicodeDataFile.is_url_newer(url, fname):
+            return
+        session = UnicodeDataFile.get_http_session()
+        resp = session.get(url, timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+        resp.raise_for_status()
+        print(f"saving {fname}: ", end='', flush=True)
+        with open(fname, 'wb') as fout:
+            for chunk in resp.iter_content(FETCH_BLOCKSIZE):
+                fout.write(chunk)
+        print('ok')
+
+    @staticmethod
+    def is_draft_url(url: str) -> bool:
+        """Whether url resolves into the pre-release '/Public/draft/' folder."""
+        if DRAFT_VERSION is None:
+            return False
+        # '/Public/{draft_version}/' urls are not typed out as '/Public/draft/', they 302 into it.
+        return bool(re.search(rf'/Public/(draft/|{DRAFT_VERSION.major}\.{DRAFT_VERSION.minor}(\.\d+)?/)',
+                              url))
+
+    @staticmethod
+    def is_url_newer(url: str, fname: str) -> bool:
+        if not os.path.exists(fname):
+            return True
+        # Only draft files are worth re-checking by default: they are revised throughout the alpha
+        # and beta review periods, while a published file never changes once released. Checking all
+        # of them makes a silent HEAD request per file, and risks a rate-limit backoff of minutes.
+        if CHECK_LAST_MODIFIED or UnicodeDataFile.is_draft_url(url):
+            session = UnicodeDataFile.get_http_session()
+            # 'requests' does not follow redirects for HEAD by default, unlike GET, and a '/Public/
+            # {version}/' url redirects into '/Public/draft/' for a version that is not yet
+            # released: without allow_redirects, this is a 302 without any 'Last-Modified' header.
+            print(f'checking {url}: ', end='', flush=True)
+            resp = session.head(url, allow_redirects=True,
+                                timeout=(CONNECT_TIMEOUT, READ_TIMEOUT))
+            resp.raise_for_status()
+            print(resp.headers.get('Last-Modified', 'no last-modified'))
+            if 'Last-Modified' not in resp.headers:
+                # cannot compare, always re-fetch
+                return True
+            remote_url_dt = dateutil.parser.parse(resp.headers['Last-Modified']).astimezone()
+            local_file_dt = datetime.datetime.fromtimestamp(os.path.getmtime(fname)).astimezone()
+            return remote_url_dt > local_file_dt
+        return False
+
+    @functools.cache
+    def get_http_session() -> requests.Session:
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'wcwidth-update-tables/1.0 (https://github.com/jquast/wcwidth)'
+        })
+        retries = urllib3.util.Retry(
+            total=MAX_RETRIES,
+            connect=MAX_RETRIES,
+            read=MAX_RETRIES,
+            backoff_factor=BACKOFF_FACTOR,
+            backoff_jitter=BACKOFF_FACTOR,
+            status_forcelist=[408, 429, 500, 502, 503, 504, 520],
+            allowed_methods=['HEAD', 'GET'],
+            raise_on_status=False,
+            respect_retry_after_header=True,
+        )
+        adapter = requests.adapters.HTTPAdapter(max_retries=retries)
+        session.mount('https://', adapter)
+        session.mount('http://', adapter)
+        return session
+
+    @staticmethod
+    def filenames() -> list[str]:
+        """Return list of UnicodeData files stored in PATH_DATA, sorted by version number."""
+        pattern = re.compile(
+            r'^(emoji-variation-sequences|DerivedGeneralCategory|EastAsianWidth)-(\d+)\.(\d+)\.(\d+).txt$')
+        filename_matches = []
+        for fname in os.listdir(PATH_DATA):
+            if match := re.search(pattern, fname):
+                filename_matches.append(match)
+        filename_matches.sort(key=lambda m: (
+            m.group(1),
+            int(m.group(2)),
+            int(m.group(3)),
+            int(m.group(4)),
+        ))
+        return [os.path.join(PATH_DATA, match.string) for match in filename_matches]
+
+
+_PY_VERSION_RE = re.compile(r"^__version__ = '[^']*'", re.M)
+
+
+def update_py_version() -> bool:
+    """
+    Stamp ``__version__`` in ``wcwidth/__init__.py`` from ``pyproject.toml``.
+
+    The version is duplicated in two places, but both are generated from pyproject.toml, the source
+    of truth.  Returns True if the file was modified.
+    """
+    init_path = os.path.join(PATH_UP, 'wcwidth', '__init__.py')
+    version = _project_version()
+    with open(init_path, encoding='utf-8') as fin:
+        original = fin.read()
+    modified = _PY_VERSION_RE.sub(f"__version__ = '{version}'", original, count=1)
+    if modified != original:
+        with open(init_path, 'w', encoding='utf-8', newline='\n') as fout:
+            fout.write(modified)
+        return True
+    return False
+
+
+# These appear to share the same engines.
+SOFTWARE_SHARED_ENGINES = {
+    'QTerminal': 'qtermwidget',
+    'cool-retro-term': 'qtermwidget',
+    'Hyper': 'xterm.js',
+    'Tabby': 'xterm.js',
+    'st-luke': 'st',
+}
+
+VTE_CANONICAL = 'vte'
+
+
+def canonical_name(software_name: str, software_version: str) -> str:
+    """Determine the canonical terminal name, applying VTE and known consolidations."""
+    if 'VTE' in software_version:
+        return VTE_CANONICAL.lower()
+    return SOFTWARE_SHARED_ENGINES.get(software_name, software_name).lower()
+
+
+def parse_wchar_codepoint(wchar: str) -> int:
+    r"""
+    Extract the primary codepoint from a wchar string.
+
+    The ``wchar`` field in ucs-detect YAML is stored as a literal Python escape string
+    (e.g. ``'\\u2630'``, ``'\\U0001f468'``), not as the actual Unicode character.
+    Decode it first, then return the ordinal of the first character.
+
+    For VS16/VS15 sequences like ``'\\u231a\\ufe0e'``, returns the base codepoint (0x231A).
+    """
+    decoded = wchar.encode('ascii').decode('unicode_escape')
+    if len(decoded) > 1 and decoded[-1] in ('\ufe0f', '\ufe0e'):
+        return ord(decoded[0])
+    return ord(decoded)
+
+
+@dataclass(frozen=True)
+class TerminalOverrides:
+    """Per-terminal codepoint override ranges for narrower/wider/zeroer measurements."""
+    narrower: list[tuple[str, str, str]]
+    wider: list[tuple[str, str, str]]
+    zeroer: list[tuple[str, str, str]]
+    narrow_zeroer: list[tuple[str, str, str]]
+
+    def items(self) -> list[tuple[str, list[tuple[str, str, str]]]]:
+        return [('narrower', self.narrower),
+                ('wider', self.wider),
+                ('zeroer', self.zeroer),
+                ('narrow_zeroer', self.narrow_zeroer)]
+
+
+@dataclass(frozen=True)
+class DedupedOverrides:
+    """Deduplicated override data: shared sets keyed by hash, terminal-to-hash refs."""
+    shared_sets: dict[str, TerminalOverrides]
+    terminal_refs: dict[str, str]
+
+
+def dedup_override_table(
+    table: Mapping[str, TerminalOverrides],
+) -> DedupedOverrides:
+    """Deduplicate override table by hashing."""
+    shared_sets: dict[str, TerminalOverrides] = {}
+    terminal_refs: dict[str, str] = {}
+    for term_name, overrides in table.items():
+        key = (tuple(overrides.narrower),
+               tuple(overrides.wider),
+               tuple(overrides.zeroer),
+               tuple(overrides.narrow_zeroer))
+        hash_key = hashlib.sha256(repr(key).encode()).hexdigest()[:8]
+        if hash_key not in shared_sets:
+            shared_sets[hash_key] = overrides
+        terminal_refs[term_name] = hash_key
+    return DedupedOverrides(shared_sets=shared_sets, terminal_refs=terminal_refs)
+
+
+@dataclass(frozen=True)
+class MergedOverridesCategory:
+    """A single category within the merged overrides table."""
+    variable_name: str
+    shared_sets: Mapping[str, TerminalOverrides]
+    terminal_refs: Mapping[str, str]
+    set_terminals: Mapping[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True)
+class MergedOverridesRenderCtx(RenderContext):
+    """Render context for all single-codepoint override tables in one file."""
+    categories: Sequence[MergedOverridesCategory]
+
+
+@dataclass
+class MergedOverridesRenderDef(RenderDefinition):
+    render_context: MergedOverridesRenderCtx
+
+    @classmethod
+    def new(cls, categories: Sequence[MergedOverridesCategory]) -> Self:
+        return cls(
+            jinja_filename='table_overrides.py.j2',
+            output_filename=os.path.join(PATH_UP, 'wcwidth', 'table_overrides.py'),
+            render_context=MergedOverridesRenderCtx(categories=categories),
+        )
+
+
+@dataclass(frozen=True)
+class GraphemeOverridePerTerminalRenderCtx(RenderContext):
+    """Render context for a single terminal's grapheme overrides."""
+    canonical_name: str
+    graphemes: dict[str, int]
+    terminals: list[str]      # All terminals that share this same grapheme data
+
+
+@dataclass
+class GraphemeOverridePerTerminalRenderDef(RenderDefinition):
+    render_context: GraphemeOverridePerTerminalRenderCtx
+
+    @classmethod
+    def new(cls, canonical_name: str, graphemes: dict[str, int],
+            terminals: list[str]) -> Self:
+        safe_name = canonical_name.replace('-', '_').replace('.', '_')
+        filename = f'table_grapheme_overrides/{safe_name}.py'
+        return cls(
+            jinja_filename='grapheme_override_per_terminal.py.j2',
+            output_filename=os.path.join(PATH_UP, 'wcwidth', filename),
+            render_context=GraphemeOverridePerTerminalRenderCtx(
+                canonical_name=canonical_name,
+                graphemes=graphemes,
+                terminals=terminals,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class GraphemeRegistryRenderCtx(RenderContext):
+    """Render context for the grapheme override hash registry."""
+
+    registry: dict[str, str]
+
+
+@dataclass
+class GraphemeRegistryRenderDef(RenderDefinition):
+    render_context: GraphemeRegistryRenderCtx
+
+    @classmethod
+    def new(cls, registry: dict[str, str]) -> Self:
+        return cls(
+            jinja_filename='grapheme_registry.py.j2',
+            output_filename=os.path.join(
+                PATH_UP, 'wcwidth', 'table_grapheme_overrides', '_registry.py'),
+            render_context=GraphemeRegistryRenderCtx(registry=registry),
+        )
+
+
+def _hex_range_descriptions(ranges: list[tuple[int, int]]) -> list[tuple[str, str, str]]:
+    """Convert integer intervals to (hex_start, hex_end, description) tuples."""
+    result: list[tuple[str, str, str]] = []
+    for lo, hi in ranges:
+        hex_start, hex_end = f'0x{lo:05x}', f'0x{hi:05x}'
+        name_start = name_ucs(chr(lo)) or '(nil)'
+        name_end = name_ucs(chr(hi)) or '(nil)'
+        if name_start != name_end:
+            txt = f'{name_start[:24].rstrip():24s}..{name_end[:24].rstrip()}'
+        else:
+            txt = name_start[:48]
+        result.append((hex_start, hex_end, txt))
+    return result
+
+
+def values_to_hex_ranges(values: set[int]) -> list[tuple[str, str, str]]:
+    """Convert a set of codepoint integers to hex range descriptions."""
+    if not values:
+        return []
+    sorted_vals = sorted(values)
+    ranges = []
+    start = end = sorted_vals[0]
+    for val in sorted_vals[1:]:
+        if val == end + 1:
+            end = val
+        else:
+            ranges.append((start, end))
+            start = end = val
+    ranges.append((start, end))
+    return _hex_range_descriptions(ranges)
+
+
+@functools.lru_cache(maxsize=1)
+def load_ucs_detect_yaml() -> list[tuple[str, str, Any]]:
+    """
+    Return (filename, canonical_name, yaml_document) for each ucs-detect data file.
+
+    Files beginning with ``_`` (syncterm, linux fbdev) are measurements outside the
+    auto-detectable terminal series, and are skipped.
+
+    :raises FileNotFoundError: when the ucs-detect submodule is not checked out.
+    """
+    yaml_paths = sorted(
+        path for path in glob.glob(os.path.join(PATH_UCS_DETECT_DATA, '*.yaml'))
+        if not os.path.basename(path).startswith('_'))
+    if not yaml_paths:
+        raise FileNotFoundError(
+            f'no terminal measurements in {PATH_UCS_DETECT_DATA}; fetch them with '
+            f"'git submodule update --init ucs-detect'")
+    items: list[tuple[str, str, Any]] = []
+    for yaml_path in yaml_paths:
+        print(f"reading {yaml_path}: ", end='', flush=True)
+        with open(yaml_path, encoding='utf-8') as f:
+            doc = yaml.load(f, Loader=SafeLoader)
+        name = doc.get('software_name', '')
+        ver = doc.get('software_version', '')
+        canonical = canonical_name(name, ver)
+        items.append((os.path.basename(yaml_path), canonical, doc))
+        print("ok")
+    return items
+
+
+def make_single_override(
+    category: str,
+    known_terminals: frozenset[str],
+) -> Mapping[str, TerminalOverrides]:
+    """
+    Collect single-codepoint overrides for a given test_results category.
+
+    Returns a dict mapping canonical_name to 'TerminalOverrides'.
+
+    - 'zeroer' means terminal measured 0, but wcwidth measured 2,
+    - 'narrower' means terminal measured 1, but wcwidth measured 2,
+    - 'wider' means terminal measured 2, but wcwidth measured 1.
+    """
+    zeroer: dict[str, set[int]] = {}
+    narrower: dict[str, set[int]] = {}
+    wider: dict[str, set[int]] = {}
+    narrow_zeroer_map: dict[str, set[int]] = {}
+
+    for _, canonical, doc in load_ucs_detect_yaml():
+        test_results = doc.get('test_results', {})
+        cat_results = test_results.get(category, {})
+        for _ver, ver_data in cat_results.items():
+            for entry in ver_data.get('failed_codepoints', []):
+                if not (isinstance(entry.get('measured_by_terminal'), int)
+                        and 'delta_ypos' not in entry
+                        and 0 <= entry['measured_by_terminal'] <= MAX_MEASURED_WIDTH):
+                    continue
+                wchar = entry['wchar']
+                ucs = parse_wchar_codepoint(wchar)
+                term_w = entry['measured_by_terminal']
+                wc_w = entry['measured_by_wcwidth']
+                if term_w == 0 and wc_w == 2:
+                    zeroer.setdefault(canonical, set()).add(ucs)
+                elif term_w == 0 and wc_w == 1 and category == 'narrow_results':
+                    narrow_zeroer_map.setdefault(canonical, set()).add(ucs)
+                elif term_w == 1 and wc_w == 2:
+                    narrower.setdefault(canonical, set()).add(ucs)
+                # 'wider' entries in emoji_vs16_results are from the vs16n baseline test
+                # (base character measured without VS16, expected width 1).  Kitty rendering
+                # these codepoints as 2 cells without VS16 is a WIDE_OVERRIDES issue, not
+                # VS16.  Terminal multiplexer entries (e.g. tmux, libvterm) are excluded by
+                # known_terminals filtering below.
+                elif category != 'emoji_vs16_results' and term_w == 2 and wc_w == 1:
+                    wider.setdefault(canonical, set()).add(ucs)
+
+    result: dict[str, TerminalOverrides] = {}
+    all_names = sorted(set(zeroer.keys()) | set(narrower.keys()) | set(wider.keys())
+                       | set(narrow_zeroer_map.keys()))
+    for name in all_names:
+        result[name] = TerminalOverrides(
+            narrower=values_to_hex_ranges(narrower.get(name, set())),
+            wider=values_to_hex_ranges(wider.get(name, set())),
+            zeroer=values_to_hex_ranges(zeroer.get(name, set())),
+            narrow_zeroer=values_to_hex_ranges(narrow_zeroer_map.get(name, set())),
+        )
+    result = {
+        name: data for name, data in result.items()
+        if name in known_terminals
+    }
+    return result
+
+
+# out-of-bounds for wcstwidth() correction tables
+MAX_MEASURED_WIDTH = 40
+
+
+def collect_grapheme_overrides(
+    known_terminals: frozenset[str],
+) -> Mapping[str, dict[str, int]]:
+    """
+    Collect multi-codepoint grapheme overrides from emoji_zwj_results, ri_results and
+    language_results.
+
+    Returns a dict mapping canonical_name -> {grapheme_string: terminal_measured_width}. Only
+    includes entries where the terminal measurement differs from wcwidth. Grapheme strings are
+    stored as Python source string literals suitable for code generation.
+    """
+    result: dict[str, dict[str, int]] = {}
+    categories = ('emoji_zwj_results', 'ri_results')
+
+    for _, canonical, doc in load_ucs_detect_yaml():
+        test_results = doc.get('test_results', {})
+        term_graphemes: dict[str, int] = {}
+        for category in categories:
+            cat_results = test_results.get(category, {})
+            for _ver, ver_data in cat_results.items():
+                for entry in ver_data.get('failed_codepoints', []):
+                    if not (isinstance(entry.get('measured_by_terminal'), int)
+                            and 'delta_ypos' not in entry
+                            and 0 <= entry['measured_by_terminal'] <= MAX_MEASURED_WIDTH):
+                        continue
+                    wchar = entry['wchar']
+                    term_w = entry['measured_by_terminal']
+                    wc_w = entry['measured_by_wcwidth']
+                    if term_w != wc_w:
+                        decoded = wchar.encode('ascii').decode('unicode_escape')
+                        term_graphemes[decoded] = term_w
+
+        lang_results = test_results.get('language_results')
+        if lang_results:
+            for lang_data in lang_results.values():
+                if not isinstance(lang_data, dict):
+                    continue
+                for entry in lang_data.get('failed', []):
+                    if ('inherited_from' in entry
+                            or not isinstance(entry.get('measured_by_terminal'), int)
+                            or 'delta_ypos' in entry
+                            or not 0 <= entry['measured_by_terminal'] <= MAX_MEASURED_WIDTH):
+                        continue
+                    wchar = entry['wchars']
+                    term_w = entry['measured_by_terminal']
+                    wc_w = entry['measured_by_wcwidth']
+                    if term_w != wc_w:
+                        decoded = wchar.encode('ascii').decode('unicode_escape')
+                        term_graphemes[decoded] = term_w
+
+        if term_graphemes:
+            result.setdefault(canonical, {}).update(term_graphemes)
+
+    result = {
+        name: data for name, data in result.items()
+        if name in known_terminals
+    }
+    return result
+
+
+def _make_merged_category(variable_name: str,
+                          table: Mapping[str, TerminalOverrides]) -> MergedOverridesCategory:
+    deduped = dedup_override_table(table)
+    set_terminals: dict[str, tuple[str, ...]] = {}
+    for term_name, hash_key in deduped.terminal_refs.items():
+        set_terminals.setdefault(hash_key, []).append(term_name)
+    set_terminals = {k: tuple(sorted(v)) for k, v in set_terminals.items()}
+    return MergedOverridesCategory(variable_name, deduped.shared_sets,
+                                   deduped.terminal_refs, set_terminals)
+
+
+def _grapheme_digest(sorted_items: Sequence[tuple[str, int]]) -> str:
+    """Return the stable short digest naming a shared grapheme override table."""
+    # we have to construct static strings, because repr() changes depending on running interpreter
+    # unicodedata version and unnecessarily jumble filenames.
+    payload = '\n'.join(
+        '{}:{}'.format(','.join(f'{ord(char):x}' for char in cluster), width)
+        for cluster, width in sorted_items)
+    return hashlib.sha256(payload.encode()).hexdigest()[:8]
+
+
+def fetch_override_grapheme_data(known_terminals: frozenset[str]) -> list[RenderDefinition]:
+    """Generate shared GRAPHEME_OVERRIDES files, deduplicating identical tables."""
+    table = collect_grapheme_overrides(known_terminals)
+
+    # Group terminals by stable hash of their grapheme data
+    hash_groups: dict[str, list[str]] = {}
+    terminal_hashes: dict[str, str] = {}
+
+    for canonical_name, graphemes in sorted(table.items()):
+        if not graphemes:
+            continue
+        sorted_items = tuple(sorted(graphemes.items()))
+        hash_key = _grapheme_digest(sorted_items)
+        hash_groups.setdefault(hash_key, []).append(canonical_name)
+        terminal_hashes[canonical_name] = hash_key
+
+    result: list[RenderDefinition] = []
+
+    # Generate one shared file per unique hash
+    for hash_key, terminals in sorted(hash_groups.items()):
+        graphemes = table[terminals[0]]
+        shared_name = f'_known_{hash_key}'
+        result.append(
+            GraphemeOverridePerTerminalRenderDef.new(shared_name, graphemes, terminals))
+
+    # Generate registry mapping terminal -> hash
+    result.append(GraphemeRegistryRenderDef.new(terminal_hashes))
+
+    return result
+
+
+@dataclass(frozen=True)
+class TermPrograms:
+    """Canonical terminal names and aliases collected from ucs-detect data."""
+    known_terminals: frozenset[str]
+    aliases: dict[str, str]
+    undetectable_terminals: frozenset[str]
+
+
+@functools.lru_cache(maxsize=1)
+def collect_term_programs() -> TermPrograms:
+    """Collect canonical terminal names and aliases from ucs-detect data."""
+    # Only terminals detectable by XTVERSION, ENQ, TERM_PROGRAM, or unique TERM are included.
+    known: set[str] = set()
+    undetectable: set[str] = set()
+    tprog_aliases: dict[str, str] = {}
+    term_aliases: dict[str, str] = {}
+
+    for fname, canonical, doc in load_ucs_detect_yaml():
+        tr = doc.get('terminal_results') or {}
+        method = tr.get('software_method', '') or ''
+        env = doc.get('environment') or {}
+        tprog = (env.get('TERM_PROGRAM', '') or '').strip()
+        term = (env.get('TERM', '') or '').strip()
+        ver = doc.get('software_version', '') or ''
+
+        has_xtversion = method in ('XTVERSION', 'ENQ') or 'VTE' in ver
+        has_tprog = bool(tprog)
+        has_dist_term = bool(term and term.lower() not in ('xterm-256color', 'xterm'))
+
+        if not (has_xtversion or has_tprog or has_dist_term):
+            undetectable.add(canonical)
+            print(f'terminal "{canonical}" ({ver}) is not auto-detectable', file=sys.stderr)
+            continue
+
+        known.add(canonical)
+
+        if has_tprog:
+            key = tprog.lower()
+            if key and key != canonical:
+                tprog_aliases[key] = canonical
+
+        if has_dist_term:
+            key = term.lower()
+            if key != canonical:
+                term_aliases.setdefault(key, canonical)
+
+    # aliases for well-known TERM_PROGRAM values not in ucs-detect data.
+    tprog_aliases.update({
+        'rxvt': 'urxvt',
+        'vscode': 'xterm.js',
+    })
+
+    # hardcoded aliases for well-known TERM values not in ucs-detect data.
+    term_aliases.update({
+        'putty': 'pterm',
+    })
+
+    known -= EXCLUDED_MULTIPLEXERS
+    term_aliases = {k: v for k, v in term_aliases.items() if v not in EXCLUDED_MULTIPLEXERS}
+    tprog_aliases = {k: v for k, v in tprog_aliases.items() if v not in EXCLUDED_MULTIPLEXERS}
+
+    aliases = {**term_aliases, **tprog_aliases}
+    _check_term_aliases(aliases, known)
+
+    return TermPrograms(
+        known_terminals=frozenset(known),
+        aliases=aliases,
+        undetectable_terminals=frozenset(undetectable - EXCLUDED_MULTIPLEXERS),
+    )
+
+
+def _check_term_aliases(aliases: dict[str, str], known: set[str]) -> None:
+    """Assert no alias key is itself a canonical terminal name."""
+    if collisions := sorted(key for key in aliases if key in known):
+        detail = ', '.join(f'{key!r} -> {aliases[key]!r}' for key in collisions)
+        raise ValueError('ucs-detect data aliases canonical terminal name(s) '
+                         f'to another terminal: {detail}.')
+
+
+@dataclass(frozen=True)
+class TermProgramTableRenderCtx(RenderContext):
+    """Render context for terminal program data."""
+    known_terminals: frozenset[str]
+    aliases: dict[str, str]
+    undetectable_terminals: frozenset[str]
+
+
+@dataclass
+class TermProgramTableRenderDef(RenderDefinition):
+    render_context: TermProgramTableRenderCtx
+
+    @classmethod
+    def new(cls) -> Self:
+        tp = collect_term_programs()
+        return cls(
+            jinja_filename='term_programs.py.j2',
+            output_filename=os.path.join(PATH_UP, 'wcwidth', 'table_term_programs.py'),
+            render_context=TermProgramTableRenderCtx(
+                known_terminals=tp.known_terminals,
+                aliases=tp.aliases,
+                undetectable_terminals=tp.undetectable_terminals,
+            ),
+        )
+
+
+# The six merged single-codepoint override categories, in C struct field order
+# (wcwidth_override_set_t in libwcwidth/include/wcwidth/table_types.h).
+OVERRIDE_CATEGORIES = (
+    'narrower',
+    'vs16_narrower',
+    'vs15_wider',
+    'zeroer',
+    'narrow_wider',
+    'narrow_zeroer',
+)
+
+
+def _hex_ranges_to_ints(ranges: list[tuple[str, str, str]]) -> list[tuple[int, int]]:
+    """Convert (hex_start, hex_end, description) tuples to integer intervals."""
+    return [(int(hex_start, 16), int(hex_end, 16)) for hex_start, hex_end, _ in ranges]
+
+
+def _merge_ranges(*range_lists: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Merge sorted, inclusive-end intervals (mirrors wcwidth/_constants.py)."""
+    all_ranges = [r for ranges in range_lists for r in ranges]
+    if not all_ranges:
+        return []
+    all_ranges.sort()
+    merged = [all_ranges[0]]
+    for lo, hi in all_ranges[1:]:
+        _, prev_hi = merged[-1]
+        if lo <= prev_hi:
+            merged[-1] = (merged[-1][0], max(prev_hi, hi))
+        else:
+            merged.append((lo, hi))
+    return merged
+
+
+def _merged_override_sets(known_terminals: frozenset[str]) -> dict[str, dict[str, list[tuple[int, int]]]]:
+    """
+    Compute the per-terminal merged override sets that the C library applies.
+
+    Mirrors wcwidth/_constants.py get_term_overrides(): WIDE+SRI+SFZ narrower and zeroer are merged;
+    VS16 narrower, VS15 wider, NARROW wider and narrow_zeroer pass through unchanged.
+    """
+    wide = make_single_override('unicode_wide_results', known_terminals)
+    sri = make_single_override('sri_results', known_terminals)
+    sfz = make_single_override('sfz_results', known_terminals)
+    vs16 = make_single_override('emoji_vs16_results', known_terminals)
+    vs15 = make_single_override('emoji_vs15_results', known_terminals)
+    narrow = make_single_override('narrow_results', known_terminals)
+
+    def _category(table: Mapping[str, TerminalOverrides], name: str, field: str):
+        if name not in table:
+            return []
+        return _hex_ranges_to_ints(getattr(table[name], field))
+
+    merged: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    for name in sorted(known_terminals):
+        merged[name] = {
+            'narrower': _merge_ranges(
+                _category(wide, name, 'narrower'),
+                _category(sri, name, 'narrower'),
+                _category(sfz, name, 'narrower'),
+            ),
+            'vs16_narrower': _category(vs16, name, 'narrower'),
+            'vs15_wider': _category(vs15, name, 'wider'),
+            'zeroer': _merge_ranges(
+                _category(wide, name, 'zeroer'),
+                _category(sri, name, 'zeroer'),
+                _category(sfz, name, 'zeroer'),
+            ),
+            'narrow_wider': _category(narrow, name, 'wider'),
+            'narrow_zeroer': _category(narrow, name, 'narrow_zeroer'),
+        }
+    return merged
+
+
+def _dedup_override_sets(
+    merged: Mapping[str, Mapping[str, list[tuple[int, int]]]],
+) -> tuple[list[dict[str, object]], list[dict[str, str]]]:
+    """Deduplicate merged override sets by hash; returns (sets, terminal refs)."""
+    sets: dict[str, dict[str, object]] = {}
+    refs: list[dict[str, str]] = []
+    for name, overrides in merged.items():
+        key = tuple(tuple(overrides[category]) for category in OVERRIDE_CATEGORIES)
+        if not any(key):
+            hash_key = 'EMPTY'
+        else:
+            hash_key = hashlib.sha256(repr(key).encode()).hexdigest()[:8]
+        if hash_key not in sets:
+            sets[hash_key] = {
+                'hash': hash_key,
+                'terminals': [name],
+                **{category: overrides[category] for category in OVERRIDE_CATEGORIES},
+            }
+        else:
+            sets[hash_key]['terminals'].append(name)
+        refs.append({'name': name, 'set_hash': hash_key})
+    for set_data in sets.values():
+        set_data['terminals'] = sorted(set_data['terminals'])
+    return list(sets.values()), refs
+
+
+def _cluster_to_codepoints(cluster: str) -> list[int]:
+    return [ord(ch) for ch in cluster]
+
+
+# How many 0xNNNNN pool values fit on one generated C source line.
+GRAPHEME_POOL_PER_LINE = 8
+
+
+def _wrap_grapheme_entries(entries: list[tuple[int, int, int]],
+                           max_columns: int = 88) -> list[str]:
+    """Format (offset, length, width) grapheme entries as wrapped source lines."""
+    lines: list[str] = []
+    line: list[str] = []
+    line_len = 0
+    for offset, length, width in entries:
+        token = f'{{ {offset}, {length}, {width} }},'
+        proposed = line_len + (1 if line else 0) + len(token)
+        if line and proposed > max_columns:
+            lines.append(' '.join(line))
+            line, line_len = [token], len(token)
+        else:
+            line.append(token)
+            line_len = proposed
+    if line:
+        lines.append(' '.join(line))
+    return lines
+
+
+@dataclass(frozen=True)
+class CTerminalOverrideRenderCtx(RenderContext):
+    """Render context for the generated C terminal override tables."""
+    categories: Sequence[str]
+    override_sets: Sequence[Mapping[str, object]]
+    grapheme_tables: Sequence[Mapping[str, object]]
+    terminals: Sequence[Mapping[str, str]]
+
+
+@dataclass
+class CTerminalOverrideRenderDef(RenderDefinition):
+    render_context: CTerminalOverrideRenderCtx
+
+    @classmethod
+    def new(cls) -> Self:
+        kt = collect_term_programs().known_terminals
+        override_sets, terminal_refs = _dedup_override_sets(_merged_override_sets(kt))
+        # Convert merged intervals to (hex_start, hex_end, description) for
+        # the template, matching the other generated C tables.
+        for set_data in override_sets:
+            for category in OVERRIDE_CATEGORIES:
+                set_data[category] = _hex_range_descriptions(set_data[category])
+
+        # Grapheme clusters, grouped and deduplicated by hash like the
+        # Python _known_* files; entries sorted lexicographically by
+        # codepoint sequence for binary search, with a flat codepoint pool.
+        grapheme_tables: dict[str, dict[str, object]] = {}
+        for name, graphemes in sorted(collect_grapheme_overrides(kt).items()):
+            if not graphemes:
+                continue
+            sorted_items = tuple(sorted(graphemes.items()))
+            hash_key = _grapheme_digest(sorted_items)
+            if hash_key not in grapheme_tables:
+                entries = []
+                pool: list[int] = []
+                for cluster, width in sorted_items:
+                    cps = _cluster_to_codepoints(cluster)
+                    assert len(cps) <= 0xFFFF, f'grapheme cluster too long: {cluster!r}'
+                    assert 0 <= width <= MAX_MEASURED_WIDTH, \
+                        f'grapheme override width out of range: {width}'
+                    entries.append((len(pool), len(cps), width))
+                    pool.extend(cps)
+                grapheme_tables[hash_key] = {
+                    'hash': hash_key,
+                    'terminals': [name],
+                    'pool_lines': [
+                        ' '.join(f'0x{cp:05x},' for cp in pool[i:i + GRAPHEME_POOL_PER_LINE])
+                        for i in range(0, len(pool), GRAPHEME_POOL_PER_LINE)
+                    ],
+                    'entry_lines': _wrap_grapheme_entries(entries),
+                }
+            else:
+                grapheme_tables[hash_key]['terminals'].append(name)
+        for table in grapheme_tables.values():
+            table['terminals'] = sorted(table['terminals'])
+
+        terminal_registry: list[dict[str, str]] = []
+        for ref in terminal_refs:
+            grapheme_hash = next(
+                (h for h, table in grapheme_tables.items()
+                 if ref['name'] in table['terminals']),
+                None,
+            )
+            # Key always present ('' when none) so templates can test
+            # truthiness without StrictUndefined raising on a missing key.
+            terminal_registry.append({
+                'name': ref['name'],
+                'set_hash': ref['set_hash'],
+                'grapheme_hash': grapheme_hash or '',
+            })
+
+        return cls(
+            jinja_filename='c_terminal_overrides.c.j2',
+            output_filename=os.path.join(PATH_UP, 'libwcwidth', 'src', 'tables',
+                                         'table_terminal_overrides.c'),
+            render_context=CTerminalOverrideRenderCtx(
+                categories=OVERRIDE_CATEGORIES,
+                override_sets=override_sets,
+                grapheme_tables=list(grapheme_tables.values()),
+                terminals=terminal_registry,
+            ),
+        )
+
+    @property
+    def table_lengths(self) -> Mapping[str, int]:
+        """Symbol -> entry count, for the generated C header's length macros."""
+        return {'WCWIDTH_TERMINAL_OVERRIDES': len(self.render_context.terminals)}
+
+
+@dataclass(frozen=True)
+class CTermProgramRenderCtx(RenderContext):
+    """Render context for the generated C terminal alias table."""
+    aliases: Sequence[tuple[str, str]]
+
+
+@dataclass
+class CTermProgramRenderDef(RenderDefinition):
+    render_context: CTermProgramRenderCtx
+
+    @classmethod
+    def new(cls) -> Self:
+        aliases = sorted(collect_term_programs().aliases.items())
+        return cls(
+            jinja_filename='c_term_programs.c.j2',
+            output_filename=os.path.join(PATH_UP, 'libwcwidth', 'src', 'tables',
+                                         'table_term_programs.c'),
+            render_context=CTermProgramRenderCtx(aliases=aliases),
+        )
+
+    @property
+    def table_lengths(self) -> Mapping[str, int]:
+        """Symbol -> entry count, for the generated C header's length macros."""
+        return {'WCWIDTH_TERMINAL_ALIASES': len(self.render_context.aliases)}
+
+
+def fetch_all_emoji_files() -> None:
+    """
+    Fetch emoji variation sequences and ZWJ sequences for all versions.
+
+    URL locations:
+    - Variation sequences (5.0-12.1): /Public/emoji/{version}/
+    - Variation sequences (13.0+): /Public/{version}/ucd/emoji/
+    - ZWJ sequences (ALL versions): /Public/emoji/{version}/
+
+    Note: ZWJ files never moved to /Public/{version}/ucd/emoji/ - they remain
+    at /Public/emoji/{version}/ for all emoji versions.
+    """
+    unicode_versions = fetch_unicode_versions()
+
+    # Legacy variation sequences (before 13.0, at /Public/emoji/{version}/)
+    legacy_variation_versions = ['5.0', '11.0', '12.0', '12.1']
+
+    for emoji_version in legacy_variation_versions:
+        fname = os.path.join(PATH_DATA, f'emoji-variation-sequences-emoji-{emoji_version}.txt')
+        UnicodeDataFile.do_retrieve(
+            url=UnicodeDataFile.URL_LEGACY_VARIATION.format(version=emoji_version),
+            fname=fname)
+
+    # ZWJ sequences are ALL at /Public/emoji/{version}/ (they didn't move)
+    all_zwj_versions = ['5.0', '11.0', '12.0', '12.1', '13.0', '13.1',
+                        '14.0', '15.0', '15.1', '16.0']
+
+    for emoji_version in all_zwj_versions:
+        fname = os.path.join(PATH_DATA, f'emoji-zwj-sequences-emoji-{emoji_version}.txt')
+        UnicodeDataFile.do_retrieve(
+            url=UnicodeDataFile.URL_EMOJI_ZWJ.format(version=emoji_version),
+            fname=fname)
+
+    # Starting with Unicode 13.0.0, variation sequences moved to /Public/{version}/ucd/emoji/
+    for version in unicode_versions:
+        if version >= UnicodeVersion.parse('13.0.0'):
+            fname = os.path.join(PATH_DATA, f'emoji-variation-sequences-{version}.txt')
+            UnicodeDataFile.do_retrieve(
+                url=UnicodeDataFile.URL_EMOJI_VARIATION.format(version=version),
+                fname=fname)
+
+
+def parse_args() -> dict[str, Any]:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Update Unicode code tables for wcwidth using jinja2 code generation.',
+        epilog='https://github.com/jquast/wcwidth'
+    )
+    parser.add_argument(
+        '--only-fetch',
+        action='store_true',
+        help='Only fetch data files without processing or code generation'
+    )
+    parser.add_argument(
+        '--fetch-all-versions',
+        action='store_true',
+        help='Fetch emoji variation sequences and ZWJ sequences for all Unicode versions '
+             '(for archival/testing purposes)'
+    )
+    parser.add_argument(
+        '--draft',
+        metavar='VERSION',
+        type=UnicodeVersion.parse,
+        help=('Generate tables from the pre-release (draft) UCD of the given not-yet-released '
+              'Unicode VERSION, E.g. --draft=18.0. For development only, do not commit or release!')
+    )
+    parser.add_argument(
+        '--check-last-modified',
+        action='store_true',
+        help='Check if remote files are newer than local files (rarely needed)'
+    )
+    return vars(parser.parse_args())
+
+
+def fetch_all_data_files(fetch_all_versions: bool = False) -> None:
+    """
+    Fetch all required Unicode data files.
+
+    Fetches data files for code generation and test files. Files are only downloaded if they don't
+    exist locally or if CHECK_LAST_MODIFIED is True and the remote file is newer.
+    """
+    # Fetch DerivedAge first to determine available Unicode versions
+    UnicodeDataFile.DerivedAge()
+    version = fetch_unicode_versions()[-1]
+
+    # Fetch data files required for code generation
+    UnicodeDataFile.UnicodeData(version)
+    UnicodeDataFile.NameAliases(version)
+    UnicodeDataFile.EastAsianWidth(version)
+    UnicodeDataFile.DerivedGeneralCategory(version)
+    UnicodeDataFile.EmojiVariationSequences(version)
+    UnicodeDataFile.LegacyEmojiVariationSequences()
+    UnicodeDataFile.GraphemeBreakProperty(version)
+    UnicodeDataFile.LineBreak(version)
+    UnicodeDataFile.EmojiData(version)
+    UnicodeDataFile.DerivedCoreProperties(version)
+    UnicodeDataFile.PropList(version)
+    UnicodeDataFile.IndicSyllabicCategory(version)
+
+    # Fetch test data files
+    UnicodeDataFile.TestEmojiVariationSequences()
+    UnicodeDataFile.TestEmojiZWJSequences()
+    UnicodeDataFile.TestGraphemeBreakTest()
+    UnicodeDataFile.TestLineBreakTest()
+    UnicodeDataFile.UDHRCombined()
+
+    # Fetch all legacy emoji files if requested
+    if fetch_all_versions:
+        fetch_all_emoji_files()
+
+
+def cleanup_stale_grapheme_files() -> None:
+    """Remove stale per-terminal grapheme override files and unreferenced _known_* files."""
+    overrides_dir = os.path.join(PATH_UP, 'wcwidth', 'table_grapheme_overrides')
+    # Because hashes can change at any given next release, this is a big part of why we prefix our
+    # files with '_' to indicate to "please do not try to import and use them!", at least not without
+    # great care via _registry.py -- because they could disappear at any next release.
+    #
+    # Load registry to determine which _known_* files are still referenced
+    registry: dict[str, str] = {}
+    registry_path = os.path.join(overrides_dir, '_registry.py')
+    if os.path.exists(registry_path):
+        # std imports
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('_registry', registry_path)
+        if spec and spec.loader:
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            registry = getattr(mod, '_REGISTRY', {})
+
+    active_hashes = set(registry.values())
+
+    for filename in sorted(os.listdir(overrides_dir)):
+        if not filename.endswith('.py'):
+            continue
+        if filename in ('__init__.py', '_registry.py'):
+            continue
+        if filename.startswith('_known_'):
+            # Remove _known_* files whose hash is not in the registry
+            hash_key = filename[len('_known_'):-len('.py')]
+            if hash_key not in active_hashes:
+                filepath = os.path.join(overrides_dir, filename)
+                os.unlink(filepath)
+                print(f'removed unreferenced {filepath}')
+            continue
+        # Remove old per-terminal override files (now covered by shared _known_* files)
+        filepath = os.path.join(overrides_dir, filename)
+        os.unlink(filepath)
+        print(f'removed obsolete {filepath}')
+
+
+def _generate_c_table_header(c_lens: Mapping[str, int], **extra: Any) -> None:
+    """
+    Write include/wcwidth/tables.h with all C table extern declarations and compile-time length
+    macros.
+
+    The entry counts are known to code generation, so each length is emitted as a literal macro
+    rather than an extern const size_t symbol.  The generated table .c files verify the count with a
+    _Static_assert.
+    """
+    overrides_names = {'WCWIDTH_TERMINAL_OVERRIDES', 'WCWIDTH_TERMINAL_ALIASES'}
+    c_names = [name for name in c_lens if name not in overrides_names]
+    header_path = os.path.join(PATH_UP, 'libwcwidth', 'include', 'wcwidth',
+                               'tables.h')
+    output = JINJA_ENV.get_template('tables.h.j2').render(
+        c_lens=c_lens, c_names=c_names, **extra)
+    new_path = header_path + '.new'
+    with open(new_path, 'w', encoding='utf-8', newline='\n') as fout:
+        fout.write(output)
+    os.replace(new_path, header_path)
+    print(f'  write {header_path}: ok')
+
+
+# The six interval tables shared by the Python and C11 outputs; each is
+# fetched once per language and rendered from that language's table template.
+TABLE_FETCHES = (
+    ('table_vs16', fetch_table_vs16_data),
+    ('table_vs15', fetch_table_vs15_data),
+    ('table_wide', fetch_table_wide_data),
+    ('table_zero', fetch_table_zero_data),
+    ('table_mc', fetch_table_category_mc_data),
+    ('table_ambiguous', fetch_table_ambiguous_data),
+)
+
+
+def python_defs(latest_version: UnicodeVersion) -> Iterator[RenderDefinition]:
+    """Render definitions for the Python tables and overrides."""
+    yield UnicodeVersionPyRenderDef.new(UnicodeVersionPyRenderCtx([latest_version]))
+    for name, fetch in TABLE_FETCHES:
+        yield UnicodeTableRenderDef.new(f'{name}.py', fetch())
+    yield GraphemeTableRenderDef.new('table_grapheme.py', fetch_table_grapheme_data())
+    yield LineBreakTableRenderDef.new('table_linebreak.py', fetch_table_linebreak_data())
+    kt = collect_term_programs().known_terminals
+    yield MergedOverridesRenderDef.new([
+        _make_merged_category('WIDE_OVERRIDES', make_single_override('unicode_wide_results', kt)),
+        _make_merged_category('SRI_OVERRIDES', make_single_override('sri_results', kt)),
+        _make_merged_category('SFZ_OVERRIDES', make_single_override('sfz_results', kt)),
+        _make_merged_category('VS16_OVERRIDES', make_single_override('emoji_vs16_results', kt)),
+        _make_merged_category('VS15_OVERRIDES', make_single_override('emoji_vs15_results', kt)),
+        _make_merged_category('NARROW_OVERRIDES', make_single_override('narrow_results', kt)),
+    ])
+    yield from fetch_override_grapheme_data(kt)
+    yield TermProgramTableRenderDef.new()
+
+
+def c_defs(latest_version: UnicodeVersion) -> Iterator[RenderDefinition]:
+    """Render definitions for the C11 tables, class table, config header, and terminal tables."""
+    table_contexts: dict[str, UnicodeTableRenderCtx] = {}
+    for name, fetch in TABLE_FETCHES:
+        context = fetch()
+        table_contexts[context.variable_name] = context
+        yield UnicodeTableRenderDef.new(f'{name}.c', context)
+    grapheme_context = fetch_table_grapheme_data()
+    yield GraphemeTableRenderDef.new('table_grapheme.c', grapheme_context)
+    linebreak_context = fetch_table_linebreak_data()
+    yield LineBreakTableRenderDef.new('table_linebreak.c', linebreak_context)
+    yield CGcbClassRenderDef.new(grapheme_context.tables)
+    bitset_context = build_bitset_tables(table_contexts, grapheme_context, linebreak_context)
+    yield BitsetTablesRenderDef.new(
+        'c_bitset_tables.c.j2',
+        os.path.join(PATH_UP, LANGUAGES['.c']['dir'], 'bitset_tables.c'),
+        bitset_context,
+    )
+    yield BitsetTablesRenderDef.new(
+        'bitset_tables.h.j2',
+        os.path.join(PATH_UP, 'libwcwidth', 'include', 'wcwidth', 'bitset_tables.h'),
+        bitset_context,
+    )
+    yield WcwidthConfigRenderDef.new(_project_version(), str(latest_version))
+    yield CTerminalOverrideRenderDef.new()
+    yield CTermProgramRenderDef.new()
+
+
+# This defines which jinja source templates map to which output filenames,
+# and what function defines the source data. We hope to add more source
+# language options using jinja2 templates, with minimal modification of the
+# code.
+def get_codegen_definitions() -> Iterator[RenderDefinition]:
+    """All render definitions: Python tables, then C11 tables."""
+    latest_version = fetch_unicode_versions()[-1]
+    yield from python_defs(latest_version)
+    yield from c_defs(latest_version)
+
+
+def write_render_defs() -> tuple[dict[str, int], dict[str, Any]]:
+    """Render and write every definition, returning the C header's render context."""
+    c_lens: dict[str, int] = {}
+    header_extra: dict[str, Any] = {}
+    for render_def in get_codegen_definitions():
+        print(f'write {render_def.output_filename}: ', flush=True, end='')
+        new_filename = render_def.output_filename + '.new'
+        with open(new_filename, 'w', encoding='utf-8', newline='\n') as fout:
+            for data in render_def.generate():
+                fout.write(data)
+        os.replace(new_filename, render_def.output_filename)
+        print('ok')
+        # Collect C table entry counts for the generated header's length macros.
+        c_lens.update(render_def.table_lengths)
+        header_extra.update(render_def.header_context)
+    return c_lens, header_extra
+
+
+def main(only_fetch: bool = False, fetch_all_versions: bool = False,
+         check_last_modified: bool = False, draft: Optional[UnicodeVersion] = None) -> None:
+    """Update east-asian, combining and zero width tables."""
+    # Set global flag for HTTP requests to check Last-Modified headers
+    global CHECK_LAST_MODIFIED, DRAFT_VERSION
+    DRAFT_VERSION = draft
+    CHECK_LAST_MODIFIED = check_last_modified
+    if draft is not None:
+        print(f'!! --draft={draft}: using pre-release UCD from '
+              'https://www.unicode.org/Public/draft/, do not commit or release !!')
+
+    # Always fetch data files first
+    fetch_all_data_files(fetch_all_versions)
+
+    # Exit early if only fetching was requested
+    if only_fetch:
+        print('Fetch complete (--only-fetch mode, skipping code generation)')
+        return
+
+    # Render all tables and overrides, then the combined C extern header.
+    c_lens, header_extra = write_render_defs()
+    _generate_c_table_header(c_lens, **header_extra)
+
+    # Stamp the Python package version from pyproject.toml (source of truth)
+    if update_py_version():
+        print('updated wcwidth/__init__.py: __version__')
+    else:
+        print('wcwidth/__init__.py: __version__ is up-to-date')
+
+    # Remove stale grapheme override files no longer referenced by _registry.py
+    cleanup_stale_grapheme_files()
+
+
+if __name__ == '__main__':
+    main(**parse_args())

@@ -1,0 +1,155 @@
+cmake_minimum_required(VERSION 3.16)
+
+# Version is stamped into the generated header by bin/update-tables.py, read it from
+# there to keep one copy.  A PEP 440 pre-release suffix is dropped: CMake project()
+# versions are numeric only.
+file(STRINGS include/wcwidth/wcwidth_config.h _wcwidth_version_line
+     REGEX "^#define WCWIDTH_VERSION \"")
+string(REGEX REPLACE ".*\"([0-9]+\\.[0-9]+\\.[0-9]+)[^\"]*\".*" "\\1"
+       _wcwidth_version "${_wcwidth_version_line}")
+
+project(libwcwidth VERSION ${_wcwidth_version} LANGUAGES C)
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+# Assertion checks, off for the distributed library.
+option(WCWIDTH_ENABLE_ASSERTS "Enable assertion checks" OFF)
+if(WCWIDTH_ENABLE_ASSERTS)
+    add_compile_definitions(WCWIDTH_ENABLE_ASSERTS=1)
+endif()
+
+# library
+# Keep this source list in parity with setup.py's _EXT_SOURCES, which builds the
+# optional CPython extension from the same sources; the Makefile globs src/*.c
+# itself.  tests/test_core.py asserts the two lists match what is on disk.
+
+set(LIBWCWIDTH_SOURCES
+    src/bisearch.c
+    src/wcwidth.c
+    src/wcswidth.c
+    src/wcstwidth.c
+    src/width.c
+    src/textwrap.c
+    src/clip.c
+    src/align.c
+    src/grapheme.c
+    src/escape.c
+    src/sgr.c
+    src/text_sizing.c
+    src/terminal_override.c
+    src/utf8.c
+    src/wcwidth_assert.c
+    src/linebreak.c
+    # Generated tables
+    src/tables/table_wide.c
+    src/tables/table_zero.c
+    src/tables/table_ambiguous.c
+    src/tables/table_grapheme.c
+    src/tables/table_linebreak.c
+    src/tables/table_mc.c
+    src/tables/table_vs15.c
+    src/tables/table_vs16.c
+    src/tables/table_terminal_overrides.c
+    src/tables/table_term_programs.c
+    src/tables/table_gcb_class.c
+    src/tables/bitset_tables.c
+)
+
+add_library(wcwidth ${LIBWCWIDTH_SOURCES})
+add_library(wcwidth::wcwidth ALIAS wcwidth)
+
+# The soname tracks the ABI.  Raise SOVERSION when an existing binary could misbehave
+# when linked with the next release, (libwcwidth0 becomes libwcwidth1) all dependencies
+# must be rebuilt.
+set_target_properties(wcwidth PROPERTIES
+    VERSION ${PROJECT_VERSION}
+    SOVERSION 0)
+
+target_include_directories(wcwidth
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+)
+
+# tests
+
+option(BUILD_TESTING "Build tests" ON)
+
+if(BUILD_TESTING)
+    enable_testing()
+
+    set(TEST_SOURCES
+        tests/test_wcwidth.c
+        tests/test_wcswidth.c
+        tests/test_width.c
+        tests/test_textwrap.c
+        tests/test_clip.c
+        tests/test_align.c
+        tests/test_grapheme.c
+        tests/test_linebreak.c
+        tests/test_escape.c
+        tests/test_sgr.c
+        tests/test_text_sizing.c
+        tests/test_utf8.c
+        tests/test_gcb_class.c
+        tests/test_terminal_override.c
+    )
+
+    foreach(test_src ${TEST_SOURCES})
+        get_filename_component(test_name ${test_src} NAME_WE)
+        add_executable(${test_name} ${test_src})
+        target_link_libraries(${test_name} PRIVATE wcwidth)
+        target_include_directories(${test_name} PRIVATE tests)
+        target_compile_definitions(${test_name} PRIVATE
+            WCWIDTH_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tests")
+        add_test(NAME ${test_name} COMMAND ${test_name})
+    endforeach()
+
+    # A second build of the library whose allocator calls resolve to hooks that
+    # test_oom supplies, so every allocation-failure branch can be reached.
+    add_library(wcwidth_oom STATIC ${LIBWCWIDTH_SOURCES})
+    target_include_directories(wcwidth_oom PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    )
+    target_compile_definitions(wcwidth_oom PRIVATE
+        malloc=wcwidth_test_malloc
+        realloc=wcwidth_test_realloc
+        calloc=wcwidth_test_calloc
+    )
+
+    add_executable(test_oom tests/test_oom.c)
+    target_link_libraries(test_oom PRIVATE wcwidth_oom)
+    target_include_directories(test_oom PRIVATE tests)
+    add_test(NAME test_oom COMMAND test_oom)
+endif()
+
+# install
+
+include(GNUInstallDirs)
+
+install(TARGETS wcwidth
+    EXPORT libwcwidth-targets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(EXPORT libwcwidth-targets
+    NAMESPACE wcwidth::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libwcwidth
+)
+
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    cmake/libwcwidth-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/libwcwidth-config.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libwcwidth
+)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/libwcwidth-config.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libwcwidth
+)

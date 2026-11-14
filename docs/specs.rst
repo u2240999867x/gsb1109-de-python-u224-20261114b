@@ -1,0 +1,222 @@
+.. _Specification:
+
+=============
+Specification
+=============
+
+This document defines how the Python wcwidth and C11 libwcwidth_ libraries measure the printable
+width of characters of a string. This describes the project's measurement convention in terms of
+the lowest level API functions :func:`wcwidth.wcwidth` and :func:`wcwidth.wcswidth` and their
+relation to higher level functions :func:`wcwidth.width`, :func:`wcwidth.wcstwidth` and
+:func:`wcwidth.iter_graphemes`.
+
+Scope
+-----
+
+The lowest level functions :func:`wcwidth.wcwidth` and  :func:`wcwidth.wcswidth` return -1 when any
+control codes are present.  The higher level function :func:`wcwidth.width` always returns a
+non-negative width; it accepts default arguments and ``control_codes='parse'``, and its behavior and
+options are described by its docstring and specifications of related control codes, `XTerm Control
+Sequences`_ and `Kitty Text Sizing Protocol`_.
+
+Each string yielded by :func:`wcwidth.iter_graphemes` may be mapped to :func:`wcwidth.wcswidth` to
+accurately measure the width of a grapheme.  :func:`wcwidth.iter_graphemes` implements the `Unicode
+Standard Annex #29`_ rules of Unicode 18.0, the version of this library's tables, while
+`unicodedata.iter_graphemes()`_, new in Python 3.15, implements Unicode 17.0.  They also differ in
+return value: :func:`wcwidth.iter_graphemes` yields only strings, while
+:func:`unicodedata.iter_graphemes` yields ``unicodedata.Segment`` class objects.
+
+Tamil, Kannada and Sinhala text is measured differently than it is segmented, so
+:func:`wcwidth.clip` and :func:`wcwidth.wrap` do not measure these scripts correctly.  See `Virama
+Conjunct Formation`_.
+
+The C11 library libwcwidth_ implements this specification through parallel entry points:
+``wcswidth_u32()`` and ``wcswidth_u8()`` for :func:`wcwidth.wcswidth`, ``wcstwidth_u8()`` for
+:func:`wcwidth.wcstwidth`, and ``wcwidth_width_u8()`` for :func:`wcwidth.width`; see the `C11 API`_.
+
+Width of -1
+-----------
+
+The following have a column width of -1 for function :func:`wcwidth.wcwidth`
+
+- ``C0`` control characters (`U+0001`_ through `U+001F`_).
+- ``C1`` control characters and ``DEL`` (`U+007F`_ through `U+009F`_).
+
+If any character in sequence contains ``C0`` or ``C1`` control characters, the final
+return value of :func:`wcwidth.wcswidth` is -1, except a control character immediately following
+ZWJ (`U+200D`_), which `Width of 0`_ consumes.
+
+Width of 0
+----------
+
+Any characters with the `Default_Ignorable_Code_Point`_ property in
+`DerivedCoreProperties.txt`_, excluding `U+00AD`_ SOFT HYPHEN (width 1) and
+`U+115F`_ HANGUL CHOSEONG FILLER (width 2).
+
+Any characters defined by `General Category`_ codes in `DerivedGeneralCategory.txt`_:
+
+- 'Me': `Enclosing Mark`_.
+- 'Mn': `Nonspacing Mark`_.
+- 'Cf': `Format`_ control characters excluding `U+00AD`_ SOFT HYPHEN and
+  `Prepended_Concatenation_Mark`_ characters.
+- 'Zl': `U+2028`_ LINE SEPARATOR only
+- 'Zp': `U+2029`_ PARAGRAPH SEPARATOR only
+
+`Emoji Modifier`_ Fitzpatrick symbols (`U+1F3FB`_ through `U+1F3FF`_) are zero-width
+only when following an emoji base character in sequence; see `Width of 2`_ for standalone.
+
+The NULL character (`U+0000`_).
+
+ZWJ (`U+200D`_) is zero-width, and in sequence by :func:`wcwidth.wcswidth` or
+:func:`wcwidth.width` the codepoint immediately following it is consumed as zero-width.
+For emoji (`Extended_Pictographic`_ property) and `Regional Indicator`_ sequences this follows the
+grapheme cluster boundary rules of `Unicode Standard Annex #29`_. After a virama, the following
+consonant continues the conjunct, see `Virama Conjunct Formation`_.
+
+The second `Regional Indicator`_ symbol (`U+1F1E6`_ through `U+1F1FF`_) in a
+consecutive pair, when measured in sequence by :func:`wcwidth.wcswidth` or
+:func:`wcwidth.width`. The first indicator of the pair is `Width of 2`_.
+
+`Hangul Jamo`_ Jungseong and "Extended-B" code blocks, `U+1160`_ through
+`U+11FF`_ and `U+D7B0`_ through `U+D7FF`_.
+
+Any characters of category ``Mc`` (`Spacing Combining Mark`_), for the
+single-character function :func:`wcwidth.wcwidth`.  When measured in sequence by
+:func:`wcwidth.wcswidth`, see `Width of 2`_.
+
+Width of 1
+----------
+
+String characters are measured width of 1 when they are not
+measured as `Width of 0`_ or `Width of 2`_.
+
+Any character with `U+FE0E`_ (Variation Selector 15) defined as ``text style``
+in `emoji-variation-sequences.txt`_, per `UTS #51`_ and `Unicode Standard
+Section 23.4`_: VS15 subtracts 1 cell from the wide character it directly
+follows, making the pair width 1. Narrow characters are unchanged.
+
+.. note:: Variation Selector 15 width specification is contested, see
+          https://github.com/jquast/wcwidth/issues/211
+
+Width of 2
+----------
+
+Any character defined by `East Asian`_ (`Unicode Standard Annex #11`_) Fullwidth
+(``F``) or Wide (``W``) properties in `EastAsianWidth.txt`_, except those that
+are defined by the Category codes of `Nonspacing Mark`_ (``Mn``) or `Spacing
+Combining Mark`_ (``Mc``).
+
+`Regional Indicator`_ symbols (`U+1F1E6`_ through `U+1F1FF`_). Though
+classified as Neutral in `EastAsianWidth.txt`_, terminals universally render
+these as double-width. A consecutive pair of Regional Indicators forms a flag
+emoji and is measured as width 2 total (first indicator is 2, second is 0).
+
+`Emoji Modifier`_ Fitzpatrick symbols (`U+1F3FB`_ through `U+1F3FF`_) when
+measured standalone (not following an emoji base character). When following
+an emoji base, they combine with the base and add 0 to total width.
+
+Any characters of `Modifier Symbol`_ category, ``'Sk'`` where ``'FULLWIDTH'`` is
+present in comment of `UnicodeData.txt`_.
+
+Any character with `U+FE0F`_ (Variation Selector 16) defined as ``emoji style``
+in `emoji-variation-sequences.txt`_, per `UTS #51`_ and `Unicode Standard
+Section 23.4`_: VS16 adds 1 cell to the narrow character it directly follows,
+making the pair width 2. Wide characters are unchanged.
+
+Any character of non-zero width followed by an ``Mc`` (`Spacing Combining Mark`_)
+character when measured in sequence by :func:`wcwidth.wcswidth` or
+:func:`wcwidth.width`. The ``Mc`` character caps the cluster width at 2,
+reflecting its *positive advance width* as defined in the `General Category Values`_
+table. Zero-width combining marks (``Mn``) between the base character and the ``Mc``
+do not break the association. For example, a consonant followed
+by a Nukta (``Mn``) and then a vowel sign (``Mc``) is measured as a cluster of
+width 2.
+
+Any grapheme cluster width is limited to 2 cells since 0.8.0, `PR #224`_, which prevents the ``Mc``
+rule and the virama conjunct sum from exceeding 2 cells.
+
+Virama Conjunct Formation
+-------------------------
+
+In `Brahmic scripts`_, `IndicSyllabicCategory.txt`_ defines two categories
+that trigger `conjunct`_ formation between consonants: `Virama`_ ("may act
+as a Pure_Killer or Invisible_Stacker depending on context") and
+`Invisible_Stacker`_ ("not visible by itself; causes conjunct formation
+or consonant stacking", the "only as consonant stackers" category
+described in the Virama section header).
+
+- A ``Virama`` contributes 0 width.
+- Most viramas have category ``Mn``, but six have category ``Mc``
+  (`Spacing Combining Mark`_): these are recognised as viramas, so they begin
+  a conjunct.
+- A ``Consonant`` immediately following a ``Virama`` adds its width to the
+  current grapheme cluster.
+- The cluster total is capped at 2 cells since 0.8.0, `PR #224`_.
+- ``Mn`` marks do not break conjunct context within the same `aksara`_.
+- ZWJ (`U+200D`_) after a virama is consumed without breaking conjunct state,
+  supporting explicit half-form requests (virama + ZWJ + consonant).
+
+See also: `L2/23-107`_ "Proper Complex Script Support in Text Terminals", the 2023 project
+proposal that records the missing terminal-width standard, and `L2/25-263`_ for the Text Terminal
+Working Group's latest report.
+
+.. _`Kitty Text Sizing Protocol`: https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
+.. _`XTerm Control Sequences`: https://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+.. _`C11 API`: https://wcwidth.readthedocs.io/en/latest/api_c.html
+.. _libwcwidth: https://wcwidth.readthedocs.io/en/latest/libwcwidth.html
+.. _`U+0000`: https://codepoints.net/U+0000
+.. _`U+0001`: https://codepoints.net/U+0001
+.. _`U+001F`: https://codepoints.net/U+001F
+.. _`U+007F`: https://codepoints.net/U+007F
+.. _`U+009F`: https://codepoints.net/U+009F
+.. _`U+00AD`: https://codepoints.net/U+00AD
+.. _`U+1160`: https://codepoints.net/U+1160
+.. _`U+11FF`: https://codepoints.net/U+11FF
+.. _`U+200D`: https://codepoints.net/U+200D
+.. _`U+2028`: https://codepoints.net/U+2028
+.. _`U+2029`: https://codepoints.net/U+2029
+.. _`U+D7B0`: https://codepoints.net/U+D7B0
+.. _`U+FE0F`: https://codepoints.net/U+FE0F
+.. _`U+FE0E`: https://codepoints.net/U+FE0E
+.. _`U+115F`: https://codepoints.net/U+115F
+.. _`DerivedGeneralCategory.txt`: https://www.unicode.org/Public/UCD/latest/ucd/extracted/DerivedGeneralCategory.txt
+.. _`DerivedCoreProperties.txt`: https://www.unicode.org/Public/UCD/latest/ucd/DerivedCoreProperties.txt
+.. _`EastAsianWidth.txt`: https://www.unicode.org/Public/UCD/latest/ucd/EastAsianWidth.txt
+.. _`emoji-variation-sequences.txt`: https://www.unicode.org/Public/UCD/latest/ucd/emoji/emoji-variation-sequences.txt
+.. _`Prepended_Concatenation_Mark`: https://www.unicode.org/reports/tr44/#Prepended_Concatenation_Mark
+.. _`Default_Ignorable_Code_Point`: https://www.unicode.org/reports/tr44/#Default_Ignorable_Code_Point
+.. _`General Category`: https://www.unicode.org/reports/tr44/#General_Category
+.. _`General Category Values`: https://www.unicode.org/reports/tr44/#GC_Values_Table
+.. _`Spacing Combining Mark`: https://www.unicode.org/versions/latest/core-spec/chapter-4/#G134153
+.. _`Enclosing Mark`: https://www.unicode.org/versions/latest/core-spec/chapter-4/#G134153
+.. _`Format`: https://www.unicode.org/versions/latest/core-spec/chapter-4/#G134153
+.. _`Modifier Symbol`: https://www.unicode.org/versions/latest/core-spec/chapter-4/#G134153
+.. _`Hangul Jamo`: https://www.unicode.org/charts/PDF/U1100.pdf
+.. _`U+D7FF`: https://www.unicode.org/charts/PDF/UD7B0.pdf
+.. _`UnicodeData.txt`: https://www.unicode.org/Public/UCD/latest/ucd/UnicodeData.txt
+.. _`East Asian`: https://www.unicode.org/reports/tr11/
+.. _`Unicode Standard Annex #11`: https://www.unicode.org/reports/tr11/
+.. _`U+1F1E6`: https://codepoints.net/U+1F1E6
+.. _`U+1F1FF`: https://codepoints.net/U+1F1FF
+.. _`U+1F3FB`: https://codepoints.net/U+1F3FB
+.. _`U+1F3FF`: https://codepoints.net/U+1F3FF
+.. _`Regional Indicator`: https://www.unicode.org/charts/PDF/U1F100.pdf
+.. _`Emoji Modifier`: https://unicode.org/reports/tr51/#Emoji_Modifiers
+.. _`Extended_Pictographic`: https://www.unicode.org/Public/UCD/latest/ucd/emoji/emoji-data.txt
+.. _`UTS #51`: https://www.unicode.org/reports/tr51/
+.. _`Nonspacing Mark`: https://www.unicode.org/versions/latest/core-spec/chapter-4/#G134153
+.. _`IndicSyllabicCategory.txt`: https://www.unicode.org/Public/UCD/latest/ucd/IndicSyllabicCategory.txt
+.. _`Invisible_Stacker`: https://www.unicode.org/Public/UCD/latest/ucd/IndicSyllabicCategory.txt
+.. _`Brahmic scripts`: https://en.wikipedia.org/wiki/Brahmic_scripts
+.. _`Virama`: https://www.unicode.org/glossary/#virama
+.. _`conjunct`: https://www.unicode.org/glossary/#consonant_conjunct
+.. _`aksara`: https://www.unicode.org/glossary/#aksara
+.. _`L2/23-107`: https://www.unicode.org/L2/L2023/23107-terminal-suppt.pdf
+.. _`L2/25-263`: https://www.unicode.org/L2/L2025/25263-ttwg-report-utc185.pdf
+.. _`Unicode Standard Annex #29`: https://www.unicode.org/reports/tr29/
+.. _`Unicode Standard Annex #14`: https://www.unicode.org/reports/tr14/
+.. _`LineBreak.txt`: https://www.unicode.org/Public/UCD/latest/ucd/LineBreak.txt
+.. _`LineBreakTest.txt`: https://www.unicode.org/Public/UCD/latest/ucd/auxiliary/LineBreakTest.txt
+.. _`Unicode Standard Section 23.4`: https://www.unicode.org/versions/latest/core-spec/chapter-23/#G19053
+.. _`unicodedata.iter_graphemes()`: https://docs.python.org/3.15/library/unicodedata.html#unicodedata.iter_graphemes
+.. _`PR #224`: https://github.com/jquast/wcwidth/pull/224
