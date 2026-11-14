@@ -20,6 +20,12 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.grapheme_boundary_before
 
+.. autofunction:: wcwidth.audit_field_concatenation
+
+.. autofunction:: wcwidth.FieldAuditResult
+
+.. autofunction:: wcwidth.FieldMerge
+
 .. autofunction:: wcwidth.ljust
 
 .. autofunction:: wcwidth.rjust

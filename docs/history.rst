@@ -3,6 +3,9 @@ History
 =======
 
 0.9.5 *unreleased*
+  * **New** `audit_field_concatenation()`_ re-checks validated fields after they are joined into one
+    line, reporting clusters that re-segment across field boundaries (split flags, ZWJ joins), their
+    real column widths, and the original field fragments.
   * **New** `iter_line_breaks()`_ in Python and ``wcwidth_linebreak_breaks_u32()`` in libwcwidth,
     following `UAX #14`_ line breaking.  ``wcwidth_linebreak_breaks_u32()`` takes a ``hyphens``
     argument, and libwcwidth adds ``line_break`` and ``break_on_hyphens`` fields to
@@ -383,6 +386,7 @@ https://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c::
 .. _`iter_line_breaks()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_line_breaks
 .. _`iter_graphemes_reverse()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_graphemes_reverse
 .. _`grapheme_boundary_before()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.grapheme_boundary_before
+.. _`audit_field_concatenation()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.audit_field_concatenation
 .. _`ljust()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.ljust
 .. _`rjust()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.rjust
 .. _`center()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.center
