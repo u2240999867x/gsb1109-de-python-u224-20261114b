@@ -37,6 +37,28 @@ from xml.dom import Node, minidom
 import httpx2 as httpx
 
 from ._version import __version__
+from .similarity import (  # noqa: F401
+    FetchFailure,
+    LocalSimilaritySource,
+    NodeState,
+    ReplayCall,
+    ReplayResponses,
+    ReplayScript,
+    ReplaySimilaritySource,
+    RequestRecord,
+    SimilarArtistCrawler,
+    SimilarityCandidate,
+    SimilarityCrawl,
+    SimilarityCrawler,
+    SimilarityCrawlResult,
+    SimilarityEdge,
+    SimilarityNode,
+    SimilarityResponse,
+    build_similarity_corpus,
+    crawl_similar,
+    crawl_similar_artists,
+    expand_similar_artists,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
