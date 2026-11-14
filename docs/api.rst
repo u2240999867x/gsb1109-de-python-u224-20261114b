@@ -32,6 +32,10 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.clip
 
+.. autofunction:: wcwidth.archive_text
+
+.. autofunction:: wcwidth.LineArchive
+
 .. autofunction:: wcwidth.strip_sequences
 
 .. autofunction:: wcwidth.propagate_sgr

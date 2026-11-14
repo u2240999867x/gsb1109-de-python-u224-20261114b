@@ -10,6 +10,7 @@ __lazy_modules__ = [
     "wcwidth._wcwidth",
     "wcwidth._width",
     "wcwidth.align",
+    "wcwidth.archive",
     "wcwidth.bisearch",
     "wcwidth.escape_sequences",
     "wcwidth.grapheme",
@@ -32,6 +33,7 @@ from functools import lru_cache
 
 # local
 from ._clip import clip
+from .archive import LineArchive, archive_text
 # re-export common and outermost functions & definitions, even a few private ones. Some are for
 # convenience and others for legacy, only the items in '__all__' are documented as public API
 from .bisearch import bisearch as _bisearch
@@ -113,6 +115,7 @@ from ._wcwidth import _wcmatch_version, _wcversion_value  # isort:skip  # pylint
 __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_graphemes',
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
            'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
+           'LineArchive', 'archive_text',
            'list_versions', 'list_term_programs', 'propagate_sgr',
            'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
 
