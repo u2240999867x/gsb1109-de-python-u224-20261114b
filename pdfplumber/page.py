@@ -572,9 +572,12 @@ class Page(Container):
 
     def dedupe_chars(self, **kwargs: Any) -> "FilteredPage":
         """
-        Removes duplicate chars — those sharing the same text and positioning
-        (within `tolerance`) as other characters in the set. Adjust extra_args
-        to be more/less restrictive with the properties checked.
+        Removes duplicate character draws — those matching on glyph, a
+        micro-offset (within `tolerance` on both axes and half a glyph
+        advance), drawing layer, and at least one paint color. Use
+        `extra_attrs` to adjust which glyph properties must match. Kept chars
+        carry a `dedupe` record with both draw sources and per-signal checks;
+        disable it with `include_provenance=False`.
         """
         p = FilteredPage(self, lambda x: True)
         p._objects = {kind: objs for kind, objs in self.objects.items()}

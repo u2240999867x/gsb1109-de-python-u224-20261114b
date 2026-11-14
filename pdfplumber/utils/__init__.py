@@ -36,6 +36,7 @@ from .text import (  # noqa: F401
     DEFAULT_Y_TOLERANCE,
     chars_to_textmap,
     collate_line,
+    dedupe_char_groups,
     dedupe_chars,
     extract_text,
     extract_text_simple,

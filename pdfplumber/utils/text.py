@@ -30,6 +30,7 @@ DEFAULT_X_DENSITY = 7.25
 DEFAULT_Y_DENSITY = 13
 DEFAULT_LINE_DIR: T_dir = "ttb"
 DEFAULT_CHAR_DIR: T_dir = "ltr"
+DEFAULT_MICRO_OFFSET_RATIO = 0.5
 
 LIGATURES = {
     "ﬀ": "ff",
@@ -791,29 +792,377 @@ def extract_text_simple(
     return "\n".join(collate_line(c, x_tolerance) for c in clustered)
 
 
+def _as_color_tuple(color: Any) -> Optional[Tuple[float, ...]]:
+    """Normalize a PDF color into a comparable RGB-ish tuple.
+
+    pdfminer.six reports colors in the color space currently in effect, so the
+    same visible color can be represented as ``(0,)`` (DeviceGray),
+    ``(0.0, 0.0, 0.0)`` (DeviceRGB), or a DeviceCMYK tuple. Convert those
+    representations to a common form before comparing duplicate draws.
+    """
+    if color is None:
+        return None
+
+    if isinstance(color, (int, float)):
+        color = (color,)
+
+    if not isinstance(color, (tuple, list)):
+        return None
+
+    try:
+        values = tuple(float(value) for value in color)
+    except (TypeError, ValueError):
+        return None
+
+    if len(values) == 1:
+        return (values[0],) * 3
+    if len(values) == 3:
+        return values
+    if len(values) == 4:
+        cyan, magenta, yellow, black = values
+        return (
+            (1 - cyan) * (1 - black),
+            (1 - magenta) * (1 - black),
+            (1 - yellow) * (1 - black),
+        )
+    return values
+
+
+def _colors_match(left: Any, right: Any, precision: float = 1e-6) -> bool:
+    left_rgb = _as_color_tuple(left)
+    right_rgb = _as_color_tuple(right)
+    if left_rgb is None or right_rgb is None:
+        return left is None and right is None
+    if len(left_rgb) != len(right_rgb):
+        return False
+    return all(abs(a - b) <= precision for a, b in zip(left_rgb, right_rgb))
+
+
+def _transforms_match(left: T_obj, right: T_obj, precision: float = 1e-6) -> bool:
+    """Compare matrix scale/skew, ignoring translation and glyph position."""
+    left_matrix = left.get("matrix")
+    right_matrix = right.get("matrix")
+    if not (
+        isinstance(left_matrix, (tuple, list))
+        and isinstance(right_matrix, (tuple, list))
+        and len(left_matrix) >= 4
+        and len(right_matrix) >= 4
+    ):
+        return True
+    return all(
+        abs(float(left_matrix[i]) - float(right_matrix[i])) <= precision
+        for i in range(4)
+    )
+
+
+def _layers_compatible(left: T_obj, right: T_obj) -> bool:
+    """Check that two draws come from the same page and compatible layers.
+
+    A missing marked-content ID/tag is treated as compatible with an explicit
+    one, because a duplicate outline pass is often wrapped in an extra
+    ``/Span`` but still belongs to the same visual layer. Two *different*
+    explicit layers are treated as incompatible.
+    """
+    left_page = left.get("page_number")
+    right_page = right.get("page_number")
+    if left_page is not None and right_page is not None and left_page != right_page:
+        return False
+
+    for attr in ("tag", "mcid"):
+        left_value = left.get(attr)
+        right_value = right.get(attr)
+        if (
+            left_value is not None
+            and right_value is not None
+            and left_value != right_value
+        ):
+            return False
+    return True
+
+
+def _glyph_extent(char: T_obj) -> Optional[float]:
+    """Return a conservative glyph advance extent for the micro-offset guard.
+
+    The ``width`` of a pdfplumber char is the glyph's horizontal extent on the
+    page, which equals its advance for upright text and the vertical advance
+    for quarter-rotated text. Narrow glyphs such as ``i`` therefore report a
+    narrow extent and cannot absorb their real neighbor.
+    """
+    for key in ("width", "size"):
+        value = char.get(key)
+        if isinstance(value, (int, float)) and value:
+            return abs(float(value))
+    return None
+
+
+def _evaluate_duplicate_draw(
+    anchor: T_obj,
+    char: T_obj,
+    tolerance: T_num,
+) -> T_obj:
+    """Audit every signal used to decide whether two draws are duplicates.
+
+    The returned dict has ``accepted``, a machine-readable ``reason`` and a
+    ``checks`` breakdown. A draw is accepted only when all of these hold:
+
+    - ``offset``: both ``|x0 - anchor.x0|`` and ``|doctop - anchor.doctop|``
+      are within ``tolerance``.
+    - ``advance``: the horizontal offset is at most
+      ``DEFAULT_MICRO_OFFSET_RATIO`` of the glyph's advance. This rejects real
+      adjacent glyphs such as the two characters in ``11`` even when a caller
+      passes a large absolute ``tolerance``. The cap is deliberately proportional
+      because a reused glyph is nudged only slightly for stroke alignment, while
+      a real neighbor is a meaningful fraction of an advance away.
+    - ``layer``: same page, and marked-content tag/MCID do not conflict. A
+      missing tag/MCID acts as a wildcard because an outline pass is commonly
+      wrapped in an extra ``/Span``.
+    - ``color``: at least one of the stroke or fill colors matches after
+      normalizing DeviceGray/DeviceRGB/DeviceCMYK. This permits a
+      fill-plus-outline pair while rejecting two differently painted glyphs.
+    - ``transform``: the first four matrix entries (scale and skew) match, so
+      same-text glyphs rendered at a different size or rotation stay distinct.
+    """
+    try:
+        delta_x = abs(float(char["x0"]) - float(anchor["x0"]))
+        delta_y = abs(float(char["doctop"]) - float(anchor["doctop"]))
+    except (KeyError, TypeError, ValueError):
+        return {
+            "accepted": False,
+            "reason": "missing_geometry",
+            "checks": {},
+        }
+
+    extent = _glyph_extent(anchor)
+    advance_limit = (
+        None if extent is None else extent * DEFAULT_MICRO_OFFSET_RATIO
+    )
+    stroke_match = _colors_match(
+        anchor.get("stroking_color"), char.get("stroking_color")
+    )
+    fill_match = _colors_match(
+        anchor.get("non_stroking_color"), char.get("non_stroking_color")
+    )
+    color_channels = tuple(
+        name
+        for name, matched in (
+            ("stroking_color", stroke_match),
+            ("non_stroking_color", fill_match),
+        )
+        if matched
+    )
+    layer_compatible = _layers_compatible(anchor, char)
+    transform_match = _transforms_match(anchor, char)
+
+    checks = {
+        "offset": {
+            "delta": (delta_x, delta_y),
+            "tolerance": tolerance,
+            "within": delta_x <= tolerance and delta_y <= tolerance,
+        },
+        "advance": {
+            "glyph_extent": extent,
+            "limit": advance_limit,
+            "within": advance_limit is None or delta_x <= advance_limit,
+        },
+        "layer": {
+            "anchor": {
+                "page_number": anchor.get("page_number"),
+                "tag": anchor.get("tag"),
+                "mcid": anchor.get("mcid"),
+            },
+            "candidate": {
+                "page_number": char.get("page_number"),
+                "tag": char.get("tag"),
+                "mcid": char.get("mcid"),
+            },
+            "compatible": layer_compatible,
+        },
+        "color": {
+            "stroking_match": stroke_match,
+            "non_stroking_match": fill_match,
+            "matching_channels": color_channels,
+            "compatible": bool(color_channels),
+        },
+        "transform": {
+            "anchor": anchor.get("matrix"),
+            "candidate": char.get("matrix"),
+            "compatible": transform_match,
+        },
+    }
+
+    if not transform_match:
+        reason = "transform_mismatch"
+    elif not checks["advance"]["within"]:
+        reason = "advance_guard"
+    elif not checks["offset"]["within"]:
+        reason = "offset_exceeds_tolerance"
+    elif not layer_compatible:
+        reason = "layer_mismatch"
+    elif not color_channels:
+        reason = "color_mismatch"
+    else:
+        reason = "duplicate"
+
+    return {
+        "accepted": reason == "duplicate",
+        "reason": reason,
+        "checks": checks,
+    }
+
+
+def _draw_provenance(index: int, char: T_obj) -> T_obj:
+    keys = (
+        "page_number",
+        "text",
+        "fontname",
+        "size",
+        "upright",
+        "x0",
+        "top",
+        "doctop",
+        "x1",
+        "bottom",
+        "adv",
+        "width",
+        "height",
+        "matrix",
+        "tag",
+        "mcid",
+        "stroking_color",
+        "non_stroking_color",
+    )
+    return {"index": index, **{key: char.get(key) for key in keys}}
+
+
+def dedupe_char_groups(
+    chars: T_obj_list,
+    tolerance: T_num = 1,
+    extra_attrs: Optional[Tuple[str, ...]] = ("fontname", "size"),
+    include_candidates: bool = True,
+) -> List[T_obj]:
+    """Find duplicate character draws, returning auditable group records.
+
+    Characters are grouped by glyph (``text``, ``upright`` and any
+    ``extra_attrs``), then anchored on the first remaining draw. Every
+    additional draw must pass all checks in ``_evaluate_duplicate_draw``
+    against the *anchor*: within ``tolerance`` on both axes, within half a
+    glyph advance, on a compatible layer, and sharing at least one paint
+    color. Because comparisons are made against the anchor rather than the
+    previous character, a chain such as ``x=0, 0.9, 1.8`` (with
+    ``tolerance=1``) splits into ``[0, 0.9]`` and ``[1.8]`` instead of
+    collapsing all three characters.
+
+    Each group record lists the kept draw and every removed draw (with its
+    ``index``, geometry, layer, colors, and full ``checks`` audit). When
+    ``include_candidates`` is true, nearby draws that were rejected for this
+    anchor are also recorded, so a reviewer can see why they stayed.
+    """
+    key = itemgetter(*("upright", "text"), *(extra_attrs or tuple()))
+    indexed = list(enumerate(chars))
+    groups: List[T_obj] = []
+
+    for glyph, glyph_chars in itertools.groupby(
+        sorted(indexed, key=lambda item: (key(item[1]), item[0])),
+        key=lambda item: key(item[1]),
+    ):
+        ordered = sorted(
+            glyph_chars,
+            key=lambda item: (item[1]["doctop"], item[1]["x0"], item[0]),
+        )
+        remaining = ordered
+        while remaining:
+            anchor_index, anchor = remaining[0]
+            members: List[Tuple[int, T_obj, T_obj]] = [
+                (anchor_index, anchor, {"accepted": True, "reason": "anchor"})
+            ]
+            candidates: List[T_obj] = []
+            rest = []
+            for position, (char_index, char) in enumerate(remaining[1:], start=1):
+                if char["doctop"] - anchor["doctop"] > tolerance:
+                    rest.extend(remaining[position:])
+                    break
+                evaluation = _evaluate_duplicate_draw(anchor, char, tolerance)
+                if evaluation["accepted"]:
+                    members.append((char_index, char, evaluation))
+                else:
+                    rest.append((char_index, char))
+                    if include_candidates:
+                        candidates.append(
+                            {
+                                "index": char_index,
+                                "draw": _draw_provenance(char_index, char),
+                                "reason": evaluation["reason"],
+                                "checks": evaluation["checks"],
+                            }
+                        )
+            remaining = rest
+
+            if len(members) == 1 and not candidates:
+                continue
+
+            record = {
+                "glyph": dict(
+                    zip(("upright", "text") + tuple(extra_attrs or ()), glyph)
+                ),
+                "tolerance": tolerance,
+                "draws": [_draw_provenance(i, c) for i, c, _ in members],
+                "kept_index": anchor_index,
+                "removed": [
+                    {
+                        "index": char_index,
+                        "draw": _draw_provenance(char_index, char),
+                        "reason": evaluation["reason"],
+                        "checks": evaluation["checks"],
+                    }
+                    for char_index, char, evaluation in members[1:]
+                ],
+                "candidates": candidates,
+            }
+            groups.append({"anchor_index": anchor_index, "record": record})
+
+    return groups
+
+
 def dedupe_chars(
     chars: T_obj_list,
     tolerance: T_num = 1,
     extra_attrs: Optional[Tuple[str, ...]] = ("fontname", "size"),
+    include_provenance: bool = True,
 ) -> T_obj_list:
     """
-    Removes duplicate chars — those sharing the same text and positioning
-    (within `tolerance`) as other characters in the set. Use extra_args to
-    be more restrictive with the properties shared by the matching chars.
+    Removes duplicate chars — those sharing the same glyph, a micro-offset
+    (within `tolerance` on both axes), a compatible drawing layer, and a
+    matching paint color. Use extra_attrs to be more restrictive with the
+    properties shared by the matching chars.
+
+    When `include_provenance` is true, each kept char that absorbed duplicate
+    draws carries a ``"dedupe"`` record. The record contains the glyph key,
+    the tolerance, the full list of draws (kept first), and for each removed
+    draw its source index, geometry, layer, colors, rejection reason, and
+    per-signal ``checks``.
     """
-    key = itemgetter(*("upright", "text"), *(extra_attrs or tuple()))
-    pos_key = itemgetter("doctop", "x0")
+    groups = dedupe_char_groups(
+        chars, tolerance, extra_attrs, include_candidates=False
+    )
+    records = {
+        group["anchor_index"]: group["record"]
+        for group in groups
+        if group["record"]["removed"]
+    }
+    removed = {
+        entry["index"] for group in groups for entry in group["record"]["removed"]
+    }
 
-    def yield_unique_chars(chars: T_obj_list) -> Generator[T_obj, None, None]:
-        sorted_chars = sorted(chars, key=key)
-        for grp, grp_chars in itertools.groupby(sorted_chars, key=key):
-            for y_cluster in cluster_objects(
-                list(grp_chars), itemgetter("doctop"), tolerance
-            ):
-                for x_cluster in cluster_objects(
-                    y_cluster, itemgetter("x0"), tolerance
-                ):
-                    yield sorted(x_cluster, key=pos_key)[0]
+    deduped = []
+    for index, char in enumerate(chars):
+        if index in removed:
+            continue
+        record = records.get(index)
+        if record is None or not include_provenance:
+            deduped.append(char)
+        else:
+            kept = dict(char)
+            kept["dedupe"] = record
+            deduped.append(kept)
+    return deduped
 
-    deduped = yield_unique_chars(chars)
-    return sorted(deduped, key=chars.index)
