@@ -453,7 +453,37 @@ Both `vertical_strategy` and `horizontal_strategy` accept the following options:
 
 Sometimes PDF files can contain forms that include inputs that people can fill out and save. While values in form fields appear like other text in a PDF file, form data is handled differently. If you want the gory details, see page 671 of this [specification](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf).
 
-`pdfplumber` doesn't have an interface for working with form data, but you can access it using `pdfplumber`'s wrappers around `pdfminer`.
+### Field values vs. widget appearances
+
+A single logical field may be rendered by several widget annotations, for instance one copy on each page. The field dictionary's `/V` entry holds the field's logical value, while each widget's `/AS` entry only describes that widget's on-page appearance. The two are therefore collected separately:
+
+- `pdf.form_fields` — one record per terminal field-tree node, including the full hierarchical `path` (so repeated partial names are disambiguated by their parent path), the logical `value`, and whether that value is the field's own `/V`, an `inherited` ancestor value, or `empty`.
+- `pdf.form_widgets` (and `page.widgets`) — one record per widget annotation, pairing the widget's per-page `appearance_state` (`/AS`) with its field's `logical_value` (`/V`). A widget showing `Off` does not erase the field's value, and a missing appearance on one page never clears a known logical value. Each record carries `page_number`, `object_ref`, `parent_ref`, and `field_ref` for tracing back into the source PDF.
+- `pdf.field_report` — one row per detected anomaly (`empty`, `inherited`, `duplicate_name`, `duplicate_path`, `missing_parent`, `orphan_widget`, `conflict`, or `appearance_missing`). Widget-level rows include the page number and the object/field references needed to locate the problem.
+
+```python
+import pdfplumber
+
+with pdfplumber.open("document_with_form.pdf") as pdf:
+    for field in pdf.form_fields:
+        print(field["path"], field["value"], field["value_source"])
+
+    for widget in pdf.form_widgets:
+        print(
+            widget["page_number"],
+            widget["field_path"],
+            "logical:", widget["logical_value"],
+            "appearance:", widget["appearance_state"],
+            widget["status"],
+        )
+
+    for row in pdf.field_report:
+        print(row["status"], row["page_number"], row["object_ref"])
+```
+
+### Low-level access
+
+You can also bypass the interface above and work directly with `pdfplumber`'s wrappers around `pdfminer`.
 
 For example, this snippet will retrieve form field names and values and store them in a dictionary.
 

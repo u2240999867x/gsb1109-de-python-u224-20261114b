@@ -340,6 +340,16 @@ class Page(Container):
         return [a for a in self.annots if a["uri"] is not None]
 
     @property
+    def widgets(self) -> List[Dict[str, Any]]:
+        """Widget annotations on this page, each paired with the logical
+        value of its field rather than just the on-page appearance state."""
+        return [
+            widget
+            for widget in self.pdf.form.widgets
+            if widget["page_number"] == self.page_number
+        ]
+
+    @property
     def objects(self) -> Dict[str, T_obj_list]:
         if hasattr(self, "_objects"):
             return self._objects

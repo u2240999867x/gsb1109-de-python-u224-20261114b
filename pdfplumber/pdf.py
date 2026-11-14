@@ -13,6 +13,7 @@ from pdfminer.pdfparser import PDFParser
 
 from ._typing import T_num, T_obj_list
 from .container import Container
+from .forms import PDFForm
 from .page import Page
 from .repair import T_repair_setting, _repair
 from .structure import PDFStructTree, StructTreeMissing
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class PDF(Container):
-    cached_properties: List[str] = Container.cached_properties + ["_pages"]
+    cached_properties: List[str] = Container.cached_properties + ["_pages", "_form"]
 
     def __init__(
         self,
@@ -189,6 +190,29 @@ class PDF(Container):
     def hyperlinks(self) -> List[Dict[str, Any]]:
         gen = (p.hyperlinks for p in self.pages)
         return list(itertools.chain(*gen))
+
+    @property
+    def form(self) -> PDFForm:
+        """The document's AcroForm, with field-tree logical values and
+        per-page widget appearances collected separately."""
+        if not hasattr(self, "_form"):
+            self._form = PDFForm(self)
+        return self._form
+
+    @property
+    def form_fields(self) -> List[Dict[str, Any]]:
+        """One record per terminal AcroForm field (logical /V values)."""
+        return self.form.fields
+
+    @property
+    def form_widgets(self) -> List[Dict[str, Any]]:
+        """One record per widget annotation (per-page /AS appearances)."""
+        return self.form.widgets
+
+    @property
+    def field_report(self) -> List[Dict[str, Any]]:
+        """Anomalies found while reconciling field values and appearances."""
+        return self.form.field_report
 
     @property
     def structure_tree(self) -> List[Dict[str, Any]]:

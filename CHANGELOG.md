@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Add `PDF.form` (plus the `PDF.form_fields`, `PDF.form_widgets`, `PDF.field_report`, and `Page.widgets` properties) for AcroForm inspection. Field-tree logical values (`/V`) and per-page widget appearance states (`/AS`) are collected separately, so a widget showing `Off` or missing an appearance never clears a known field value. Field records use full parent paths to disambiguate repeated partial names and flag empty, inherited, duplicated, unresolvable, and orphaned cases; the report traces every anomaly back to its page number and object references.
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed
