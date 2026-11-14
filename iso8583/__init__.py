@@ -69,9 +69,23 @@ __all__ = [
     "DecodeError",
     "encode",
     "EncodeError",
+    "Subitem",
+    "SubitemTable",
+    "SubitemError",
+    "SubitemSchemaError",
+    "parse_subitems",
+    "decode_subitems",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
 from iso8583.decoder import DecodeError, decode
 from iso8583.encoder import EncodeError, encode
+from iso8583.subitems import (
+    Subitem,
+    SubitemError,
+    SubitemSchemaError,
+    SubitemTable,
+    decode_subitems,
+    parse_subitems,
+)
 from iso8583.tools import pp

@@ -178,7 +178,6 @@ and checking if it's a subset of the received fields.
 Convert to and from JSON
 ------------------------
 :mod:`iso8583` output is JSON compatible.
-
 .. code-block:: python
 
     >>> import json
@@ -292,3 +291,43 @@ And encode the data.
     >>> encoded_raw, encoded = iso8583.encode(decoded, spec)
     >>> encoded_raw
     bytearray(b'02004000000000000000\x15\x12\x12\x00\x00\x00\x02\x12\x10')
+
+Parse Field 48 Subitems
+-----------------------
+A partner may define field 48 as a sequence of subitems.  Describe that
+sequence with a versioned schema and pass it to :func:`iso8583.decode`.
+Each row of the resulting table keeps absolute byte offsets, its path,
+preorder sequence number and the schema version.
+
+.. code-block:: python
+
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii as spec
+    >>> schema = {
+    ...     "version": "partner-2026.1",
+    ...     "children": [
+    ...         {"name": "01", "type": "data", "len_type": 2,
+    ...          "max_len": 99, "data_enc": "ascii"},
+    ...         {"name": "02", "type": "group", "len_type": 2,
+    ...          "max_len": 99, "repeat": 2, "children": [
+    ...              {"name": "A", "type": "data", "len_type": 1,
+    ...               "max_len": 9, "data_enc": "ascii"},
+    ...              {"name": "B", "type": "data", "len_type": 0,
+    ...               "max_len": 2, "data_enc": "ascii"},
+    ...          ]},
+    ...     ],
+    ... }
+    >>> message, _ = iso8583.encode(
+    ...     {"t": "0200", "48": "03ABC0411XY0412ZW"}, spec)
+    >>> doc_dec, doc_enc = iso8583.decode(
+    ...     message, spec, subitem_schema=schema)
+    >>> table = doc_enc["48"]["subitems"]
+    >>> table.find("48/02[2]/A").value
+    '2'
+    >>> table.find("48/02[1]").start
+    28
+
+Lengths declared in bytes or nibbles are always clipped to the containing
+group or field.  A subitem that claims more bytes than field 48 contains is
+marked ``truncated`` at the field-48 tail; the next ISO field is decoded
+normally by the existing decoder.

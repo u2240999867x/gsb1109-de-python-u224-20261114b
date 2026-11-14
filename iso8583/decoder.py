@@ -1,9 +1,9 @@
-from typing import Any, Dict, Literal, Mapping, Set, Tuple, Type, Union
+from typing import Any, Dict, Literal, Mapping, Optional, Set, Tuple, Type, Union
 
 __all__ = ["decode", "DecodeError"]
 
 DecodedDict = Dict[str, str]
-EncodedDict = Dict[str, Dict[str, bytes]]
+EncodedDict = Dict[str, Dict[str, Any]]
 SpecDict = Mapping[str, Mapping[str, Any]]
 
 
@@ -57,7 +57,11 @@ class DecodeError(ValueError):
 
 
 def decode(
-    s: Union[bytes, bytearray], spec: SpecDict
+    s: Union[bytes, bytearray],
+    spec: SpecDict,
+    subitem_schema: Optional[Mapping[str, Any]] = None,
+    subitem_field: str = "48",
+    subitem_strict: bool = False,
 ) -> Tuple[DecodedDict, EncodedDict]:
     r"""Deserialize a bytes or bytearray instance containing
     ISO8583 data to a Python dict.
@@ -69,6 +73,17 @@ def decode(
     spec : dict
         A Python dict defining ISO8583 specification.
         See :mod:`iso8583.specs` module for examples.
+    subitem_schema : dict, optional
+        Partner schema for subitems inside `subitem_field`.
+        When provided, a :class:`iso8583.subitems.SubitemTable` is added
+        to ``doc_enc[subitem_field]["subitems"]``.  If `subitem_field` is
+        absent from the message no table is produced.
+        The same schema can also be configured as
+        ``spec[subitem_field]["subitems"]``.
+    subitem_field : str, optional
+        Field that contains partner-defined subitems (default ``"48"``).
+    subitem_strict : bool, optional
+        Passed to :func:`iso8583.subitems.parse_subitems`.
 
     Returns
     -------
@@ -103,6 +118,9 @@ def decode(
         raise TypeError(
             f"Encoded ISO8583 data must be bytes or bytearray, not {s.__class__.__name__}"
         )
+
+    if subitem_schema is None:
+        subitem_schema = spec.get(subitem_field, {}).get("subitems")
 
     doc_dec: DecodedDict = {}
     doc_enc: EncodedDict = {}
@@ -155,8 +173,16 @@ def decode(
         fields.remove(65)
 
     for field in [str(i) for i in sorted(fields)]:
+        field_start = idx
         idx = _decode_field(s, doc_dec, doc_enc, idx, field, spec[field])
-
+        if field == subitem_field and subitem_schema is not None:
+            doc_enc[field]["subitems"] = _parse_subitems(
+                doc_enc[field],
+                subitem_schema,
+                field_start,
+                field,
+                subitem_strict,
+            )
     if idx != len(s):
         raise DecodeError(
             "Extra data after last field", s, doc_dec, doc_enc, idx, field
@@ -170,6 +196,31 @@ def decode(
 #
 
 _FieldSpecDict = Mapping[str, Any]
+
+
+def _parse_subitems(
+    encoded_field: Mapping[str, Any],
+    schema: Mapping[str, Any],
+    field_start: int,
+    field: str,
+    strict: bool,
+) -> Any:
+    r"""Parse subitems from an already decoded field value.
+
+    The value starts after the field's own length prefix, so row offsets
+    remain absolute positions in the original message.
+    """
+    from iso8583.subitems import parse_subitems
+
+    len_bytes = encoded_field.get("len", b"")
+    data = encoded_field.get("data", b"")
+    return parse_subitems(
+        data,
+        schema,
+        base_offset=field_start + len(len_bytes),
+        field=field,
+        strict=strict,
+    )
 
 
 def _decode_header(
