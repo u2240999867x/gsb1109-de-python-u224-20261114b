@@ -16,7 +16,8 @@ from sys import stdout
 from unittest import skipIf, TestCase
 
 from tinytag import ParseError, TinyTagException, UnsupportedFormatError
-from tinytag import Image, Images, OtherFields, OtherImages, TinyTag
+from tinytag import Image, ImageDescription, Images, ImageSelection, TinyTag
+from tinytag import OtherFields, OtherImages
 from tinytag.tinytag import _ID3, _MPEG, _Ogg, _Wave, _Flac, _ASF, _MP4, _Aiff
 
 TYPE_CHECKING = False
@@ -3492,6 +3493,150 @@ class TestAll(TestCase):
         self.assertEqual(image.data, manual_image.data)
         with self.assertWarns(DeprecationWarning):
             self.assertEqual(image.data, tag.get_image())
+
+    def test_images_describe(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        descriptions = tag.images.describe()
+        self.assertTrue(all(
+            isinstance(description, ImageDescription)
+            for description in descriptions))
+        self.assertEqual(
+            [(description.name, description.edition, description.size,
+              description.description) for description in descriptions],
+            [('front_cover', 0, 1220, 'first image'),
+             ('front_cover', 1, 1552, 'second image'),
+             ('front_cover', 2, 1552, 'third image'),
+             ('artist', 0, 1220, 'first artist image'),
+             ('artist', 1, 1220, 'second artist image'),
+             ('artist', 2, 1552, 'third artist image'),
+             ('conductor', 0, 0, 'empty image')])
+        # descriptions carry no image data
+        for description in descriptions:
+            self.assertFalse(hasattr(description, 'data'))
+
+    def test_images_describe_then_select(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        # inspect descriptions first, then read the selected image
+        description = tag.images.describe()[2]
+        selection = tag.images.select(
+            role=description.name, edition=description.edition)
+        assert selection.image is not None
+        self.assertEqual(selection.image.description, 'third image')
+        self.assertEqual(selection.image.size, description.size)
+
+    def test_images_select_preferred(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        selection = tag.images.select()
+        self.assertIsInstance(selection, ImageSelection)
+        assert selection.image is not None
+        assert selection.description is not None
+        self.assertEqual(selection.image.data, tag.images.front_cover.data)
+        self.assertEqual(selection.description.name, 'front_cover')
+        self.assertEqual(selection.description.edition, 0)
+        self.assertFalse(selection.constraints)
+        self.assertTrue(selection.reason)
+        # without a byte budget, all remaining images are deliverable
+        self.assertEqual(len(selection.alternatives), 6)
+
+    def test_images_select_role_and_edition(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        selection = tag.images.select(role='artist', edition=2)
+        assert selection.image is not None
+        self.assertEqual(selection.image.description, 'third artist image')
+        self.assertFalse(selection.constraints)
+        # 'other.' prefixed role names are accepted as well
+        selection = tag.images.select(role='other.artist', edition=1)
+        assert selection.image is not None
+        self.assertEqual(selection.image.description, 'second artist image')
+
+    def test_images_select_unavailable_role(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        # no back cover embedded: fall back to the most desirable image
+        selection = tag.images.select(role='back_cover')
+        assert selection.image is not None
+        self.assertEqual(selection.image.name, 'front_cover')
+        self.assertTrue(any(
+            'back_cover' in constraint
+            for constraint in selection.constraints))
+
+    def test_images_select_unavailable_edition(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        selection = tag.images.select(role='artist', edition=9)
+        assert selection.image is not None
+        # fall back to the first edition of the requested role
+        self.assertEqual(selection.image.description, 'first artist image')
+        self.assertTrue(any(
+            'edition 9' in constraint
+            for constraint in selection.constraints))
+
+    def test_images_select_budget(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_values_images.flac'),
+            image=True)
+        # the most desirable image exceeds the budget: deliver the first
+        # image that fits, and list the constraint reasons
+        selection = tag.images.select(max_bytes=100)
+        assert selection.image is not None
+        self.assertEqual(selection.image.size, 61)
+        self.assertEqual(selection.image.description, 'yet another image')
+        self.assertEqual(len(selection.constraints), 2)
+        self.assertTrue(all(
+            'exceeds byte budget' in constraint
+            for constraint in selection.constraints))
+        self.assertFalse(selection.alternatives)
+
+    def test_images_select_budget_alternatives(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        selection = tag.images.select(max_bytes=1220)
+        assert selection.image is not None
+        self.assertEqual(selection.image.size, 1220)
+        self.assertFalse(selection.constraints)
+        # oversized editions are not deliverable alternatives
+        self.assertEqual(
+            [alternative.size for alternative in selection.alternatives],
+            [1220, 1220, 0])
+
+    def test_images_select_nothing_fits(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_values_images.flac'),
+            image=True)
+        selection = tag.images.select(max_bytes=60)
+        self.assertIsNone(selection.image)
+        self.assertIsNone(selection.description)
+        self.assertEqual(len(selection.constraints), 4)
+        self.assertFalse(selection.alternatives)
+        self.assertTrue(selection.reason)
+
+    def test_images_select_no_images(self) -> None:
+        selection = Images().select()
+        self.assertIsNone(selection.image)
+        self.assertFalse(selection.constraints)
+        self.assertFalse(selection.alternatives)
+        self.assertTrue(selection.reason)
+
+    def test_images_select_detached_copy(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'multiple_images.mp3'), image=True)
+        selection = tag.images.select(role='front_cover', edition=0)
+        assert selection.image is not None
+        selected_data = selection.image.data
+        # modifying the pixels of an unselected image must not change
+        # the selected cover
+        unselected = tag.images.other['front_cover'][0]
+        unselected.data = bytearray(unselected.data)
+        unselected.data[0] = 0x00
+        self.assertEqual(selection.image.data, selected_data)
+        # the delivered image is detached from the parsed images
+        self.assertIsNot(selection.image, tag.images.front_cover)
+        tag.images.front_cover.data = b'changed'
+        self.assertEqual(selection.image.data, selected_data)
 
     def test_detect_magic_bytes(self) -> None:
         for testfile, expected in (

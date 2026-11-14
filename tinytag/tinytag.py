@@ -410,6 +410,110 @@ class Images:
                 return value
         return None
 
+    def describe(self) -> list[ImageDescription]:
+        """Return data-free descriptions of all available images.
+
+        Allows inspecting the role, edition and byte size of each image
+        before deciding which image data to read.
+        """
+        descriptions: list[ImageDescription] = []
+        for name, images in self._roles().items():
+            for edition, image in enumerate(images):
+                descriptions.append(ImageDescription(
+                    name, edition, image.size,
+                    image.mime_type, image.description))
+        return descriptions
+
+    def select(self,
+               role: str | None = None,
+               edition: int = 0,
+               max_bytes: int | None = None) -> ImageSelection:
+        """Select an image by role, edition and readable byte budget.
+
+        Returns an ImageSelection containing the most desirable image
+        that fits within 'max_bytes' (if given), along with the reasons
+        for the pick and any deliverable alternatives. The delivered
+        images are detached copies, so modifying images that were not
+        selected does not affect them.
+        """
+        constraints: list[str] = []
+        roles = self._roles()
+        if not roles:
+            return ImageSelection(reason='no images are available')
+        pref_name = role
+        if pref_name is not None:
+            if pref_name.startswith(self._OTHER_PREFIX):
+                pref_name = pref_name[len(self._OTHER_PREFIX):]
+            pref_images = roles.get(pref_name)
+            if pref_images is None:
+                constraints.append(
+                    f'requested role {pref_name!r} is not available')
+                pref_images = []
+        else:
+            pref_name, pref_images = next(iter(roles.items()))
+        candidates: list[tuple[str, int, Image]] = []
+        if pref_images:
+            if 0 <= edition < len(pref_images):
+                candidates.append((pref_name, edition, pref_images[edition]))
+            else:
+                constraints.append(
+                    f'requested edition {edition} of role {pref_name!r} is '
+                    f'not available ({len(pref_images)} edition(s) found)')
+            candidates.extend(
+                (pref_name, idx, image)
+                for idx, image in enumerate(pref_images) if idx != edition)
+        for name, images in roles.items():
+            candidates.extend(
+                (name, idx, image) for idx, image in enumerate(images))
+        # remove duplicates, preserving the order of preference
+        seen: set[tuple[str, int]] = set()
+        ordered: list[tuple[str, int, Image]] = []
+        for candidate in candidates:
+            key = candidate[0], candidate[1]
+            if key not in seen:
+                seen.add(key)
+                ordered.append(candidate)
+        # deliver the most desirable image that fits the byte budget
+        selected = None
+        selected_pos = 0
+        for pos, candidate in enumerate(ordered):
+            name, ed, image = candidate
+            if max_bytes is not None and image.size > max_bytes:
+                constraints.append(
+                    f'{name!r} edition {ed} ({image.size} bytes) exceeds '
+                    f'byte budget of {max_bytes} by '
+                    f'{image.size - max_bytes} bytes')
+                continue
+            selected = candidate
+            selected_pos = pos
+            break
+        if selected is None:
+            return ImageSelection(
+                reason='no image fits the requested constraints',
+                constraints=constraints)
+        name, ed, image = selected
+        description = ImageDescription(
+            name, ed, image.size, image.mime_type, image.description)
+        alternatives = [
+            _copy_image(other_image)
+            for _other_name, _other_ed, other_image
+            in ordered[selected_pos + 1:]
+            if max_bytes is None or other_image.size <= max_bytes
+        ]
+        reason = f'selected {name!r} edition {ed} ({image.size} bytes)'
+        if constraints:
+            reason += ' as the most desirable deliverable image'
+        else:
+            reason += ' as the most desirable image'
+        if max_bytes is not None:
+            reason += f' within byte budget of {max_bytes}'
+        return ImageSelection(
+            image=_copy_image(image),
+            description=description,
+            reason=reason,
+            constraints=constraints,
+            alternatives=alternatives)
+
     def as_dict(self) -> dict[str, list[Image]]:
         """Return a flat dictionary representation of available images."""
         images: dict[str, list[Image]] = {}
@@ -425,6 +529,20 @@ class Images:
                 else:
                     other_images += other_values
         return images
+
+    def _roles(self) -> dict[str, list[Image]]:
+        # Return available images grouped by role, in order of
+        # preference. Each list contains the editions of a role in the
+        # order they appear in the file.
+        roles: dict[str, list[Image]] = {}
+        for key in ('front_cover', 'back_cover', 'media'):
+            value = self.__dict__.get(key)
+            if value is not None:
+                roles[key] = [value]
+        for other_key, other_values in self.other.items():
+            role_images = roles.setdefault(other_key, [])
+            role_images += other_values
+        return roles
 
     def _set_field(self, fieldname: str, value: Image) -> None:
         old_value = self.__dict__.get(fieldname)
@@ -477,6 +595,54 @@ class Image:
         if data is not None:
             variables["data"] = (data[:45] + b'..') if len(data) > 45 else data
         data_str = ', '.join(f'{k}={v!r}' for k, v in variables.items())
+        return f'{type(self).__name__}({data_str})'
+
+
+def _copy_image(image: Image) -> Image:
+    # Return a detached copy of an image, so that modifying the
+    # original image does not affect the copy.
+    data = image.data
+    if data is not None:
+        data = bytes(bytearray(data))
+    return Image(image.name, image.size, data,
+                 image.mime_type, image.description)
+
+
+class ImageDescription:
+    """A data-free description of an image embedded in an audio file."""
+    def __init__(self,
+                 name: str,
+                 edition: int,
+                 size: int,
+                 mime_type: str | None = None,
+                 description: str | None = None) -> None:
+        self.name = name
+        self.edition = edition
+        self.size = size
+        self.mime_type = mime_type
+        self.description: str | None = description
+
+    def __repr__(self) -> str:
+        data_str = ', '.join(f'{k}={v!r}' for k, v in vars(self).items())
+        return f'{type(self).__name__}({data_str})'
+
+
+class ImageSelection:
+    """The result of selecting an image from an Images object."""
+    def __init__(self,
+                 image: Image | None = None,
+                 description: ImageDescription | None = None,
+                 reason: str = '',
+                 constraints: list[str] | None = None,
+                 alternatives: list[Image] | None = None) -> None:
+        self.image = image
+        self.description = description
+        self.reason = reason
+        self.constraints = constraints if constraints is not None else []
+        self.alternatives = alternatives if alternatives is not None else []
+
+    def __repr__(self) -> str:
+        data_str = ', '.join(f'{k}={v!r}' for k, v in vars(self).items())
         return f'{type(self).__name__}({data_str})'
 
 

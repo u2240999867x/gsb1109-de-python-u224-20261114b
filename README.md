@@ -445,6 +445,55 @@ if fish_images:
     description = image.description
 ```
 
+#### Selecting images by role, edition and byte budget
+
+Some files contain several images of the same kind (e.g. multiple pressings
+sharing a thumbnail cover), and the most desirable image is not always the
+first one stored in the file. To inspect the available images without reading
+their data, use `images.describe()`, which returns an `ImageDescription`
+(role, edition, size, MIME type and description) for each image:
+
+```python
+from tinytag import ImageDescription, TinyTag
+
+tag: TinyTag = TinyTag.get('/some/music.mp3', image=True)
+descriptions: list[ImageDescription] = tag.images.describe()
+
+for description in descriptions:
+    print(description.name)        # image role, e.g. 'front_cover'
+    print(description.edition)     # 0-based index among images of the role
+    print(description.size)        # image size in bytes
+    print(description.mime_type)   # image MIME type
+    print(description.description) # image description
+```
+
+To read a specific image, select it by role, edition and the number of bytes
+you are able to read (`max_bytes`):
+
+```python
+from tinytag import ImageSelection, TinyTag
+
+tag: TinyTag = TinyTag.get('/some/music.mp3', image=True)
+selection: ImageSelection = tag.images.select(
+    role='front_cover',  # preferred image role (optional)
+    edition=0,           # preferred edition of the role (optional)
+    max_bytes=1500       # readable byte budget (optional)
+)
+
+selection.image        # the selected Image (a detached copy), or None
+selection.description  # ImageDescription of the selected image, or None
+selection.reason       # rationale for the pick
+selection.constraints  # reasons why more desirable images were rejected,
+                       # e.g. exceeding the byte budget
+selection.alternatives # other deliverable images within the byte budget
+```
+
+If the most desirable image exceeds the byte budget, the first image that
+fits the budget is delivered instead, and `constraints` lists why the
+preferred images could not be delivered. The delivered images are detached
+copies, so modifying an image that was not selected does not change the
+selected one.
+
 ### Magic Byte Detection
 
 By default, tinytag will determine the file type by 1. checking the file name
