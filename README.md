@@ -72,6 +72,31 @@ datetime.date(2012, 12, 31)
 
 For a more complete documentation and advanced usage, go to [the official workalendar documentation](https://workalendar.github.io/workalendar).
 
+### Lead-time dashboard
+
+`workalendar.leadtime` measures order lead times in working days, excluding
+contractual pause periods, and summarises how many orders are overdue at a
+given observation cutoff:
+
+```python
+>>> from datetime import date
+>>> from workalendar.europe import France
+>>> from workalendar.leadtime import LeadTimeOrder, lead_time_dashboard
+>>> orders = [LeadTimeOrder(
+...     reference="ORD-42",
+...     started_on=date(2024, 4, 29),
+...     sla_working_days=5,
+...     delivered_on=date(2024, 5, 6),
+... )]
+>>> dashboard = lead_time_dashboard(orders, as_of=date(2024, 5, 10),
+...                                 calendar=France())
+>>> dashboard.overdue_count
+0
+```
+
+See [the lead-time documentation](docs/leadtime.md) for pauses, overlapping
+periods and cutoff rules.
+
 ## External dependencies
 
 **Workalendar will require you to use Python 3.7+.**

@@ -811,6 +811,57 @@ class CoreCalendar:
         day = day + timedelta(days=day_delta)
         return day
 
+    def get_lead_time_elapsed(self, start, end, pauses=None,
+                              include_start=False, pause_end_inclusive=False,
+                              extra_working_days=None, extra_holidays=None):
+        """Working days between ``start`` and ``end``, minus paused days.
+
+        This is a thin calendar-bound wrapper around
+        :func:`workalendar.leadtime.elapsed_working_days`.
+        """
+        from .leadtime import elapsed_working_days
+        return elapsed_working_days(
+            start,
+            end,
+            calendar=self,
+            pauses=pauses,
+            include_start=include_start,
+            pause_end_inclusive=pause_end_inclusive,
+            extra_working_days=extra_working_days,
+            extra_holidays=extra_holidays,
+        )
+
+    def get_lead_time(self, order, as_of, include_start=False,
+                      pause_end_inclusive=False,
+                      extra_working_days=None, extra_holidays=None):
+        """Measure one order's lead time at ``as_of`` using this calendar."""
+        from .leadtime import compute_lead_time
+        return compute_lead_time(
+            order,
+            as_of,
+            calendar=self,
+            include_start=include_start,
+            pause_end_inclusive=pause_end_inclusive,
+            extra_working_days=extra_working_days,
+            extra_holidays=extra_holidays,
+        )
+
+    def get_lead_time_dashboard(self, orders, as_of, include_start=False,
+                                pause_end_inclusive=False,
+                                extra_working_days=None,
+                                extra_holidays=None):
+        """Build a lead-time dashboard using this calendar."""
+        from .leadtime import lead_time_dashboard
+        return lead_time_dashboard(
+            orders,
+            as_of,
+            calendar=self,
+            include_start=include_start,
+            pause_end_inclusive=pause_end_inclusive,
+            extra_working_days=extra_working_days,
+            extra_holidays=extra_holidays,
+        )
+
     def get_working_days_delta(self, start, end, include_start=False,
                                extra_working_days=None, extra_holidays=None):
         """

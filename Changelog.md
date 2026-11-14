@@ -3,6 +3,8 @@
 ## master (unreleased)
 
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
+- Added ``workalendar.leadtime``: pause-aware working-day lead-time clock and
+  dashboard summary, with a strict observation cutoff.
 
 ## v17.0.0 (2023-01-01)
 

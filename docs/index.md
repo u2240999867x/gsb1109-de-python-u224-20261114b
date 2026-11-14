@@ -20,4 +20,5 @@ See [the repository README](https://github.com/workalendar/workalendar#available
   * [Class options](class-options.md)
   * [ISO Registry](iso-registry.md)
   * [iCal Export](ical.md)
+  * [Lead-time dashboard](leadtime.md)
 * [How to contribute](contributing.md)
