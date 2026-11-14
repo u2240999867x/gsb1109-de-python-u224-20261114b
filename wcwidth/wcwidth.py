@@ -20,6 +20,7 @@ __lazy_modules__ = [
     "wcwidth.bisearch",
     "wcwidth.control_codes",
     "wcwidth.escape_sequences",
+    "wcwidth.fixed_table",
     "wcwidth.grapheme",
     "wcwidth.sgr_state",
     "wcwidth.table_ambiguous",
@@ -65,6 +66,13 @@ from .escape_sequences import (ZERO_WIDTH_PATTERN,
                                INDETERMINATE_EFFECT_SEQUENCE,
                                iter_sequences,
                                strip_sequences)
+from .fixed_table import (CharSpan,
+                          FieldSplit,
+                          SpanKind,
+                          iter_char_spans,
+                          parse_fixed_width_table,
+                          reassemble_fixed_width,
+                          split_fixed_width)
 from .unicode_versions import list_versions
 
 __all__ = (
@@ -83,6 +91,13 @@ __all__ = (
     'center',
     'clip',
     'strip_sequences',
+    'iter_char_spans',
+    'split_fixed_width',
+    'parse_fixed_width_table',
+    'reassemble_fixed_width',
+    'CharSpan',
+    'FieldSplit',
+    'SpanKind',
     '_wcmatch_version',
     '_wcversion_value',
 )

@@ -48,6 +48,20 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.TextSizingParams
 
+.. autofunction:: wcwidth.iter_char_spans
+
+.. autofunction:: wcwidth.split_fixed_width
+
+.. autofunction:: wcwidth.parse_fixed_width_table
+
+.. autofunction:: wcwidth.reassemble_fixed_width
+
+.. autofunction:: wcwidth.SpanKind
+
+.. autofunction:: wcwidth.CharSpan
+
+.. autofunction:: wcwidth.FieldSplit
+
 .. autofunction:: wcwidth.wcstwidth
 
 .. _SEMVER: https://semver.org

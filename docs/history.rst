@@ -3,6 +3,11 @@ History
 =======
 
 0.9.5 *unreleased*
+  * **New** ``split_fixed_width()``, ``parse_fixed_width_table()``, ``reassemble_fixed_width()``
+    and ``iter_char_spans()`` split fixed-width terminal tables into fields by display column
+    boundaries.  Wide characters straddling a boundary are reported as fragments with their source
+    range, kept distinct from real spaces, and restored exactly once on reassembly; combining marks
+    and variation selectors stay with their base character.
   * **New** `iter_line_breaks()`_ in Python and ``wcwidth_linebreak_breaks_u32()`` in libwcwidth,
     following `UAX #14`_ line breaking.  ``wcwidth_linebreak_breaks_u32()`` takes a ``hyphens``
     argument, and libwcwidth adds ``line_break`` and ``break_on_hyphens`` fields to

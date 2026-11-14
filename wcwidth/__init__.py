@@ -12,6 +12,7 @@ __lazy_modules__ = [
     "wcwidth.align",
     "wcwidth.bisearch",
     "wcwidth.escape_sequences",
+    "wcwidth.fixed_table",
     "wcwidth.grapheme",
     "wcwidth.hyperlink",
     "wcwidth.linebreak",
@@ -45,6 +46,13 @@ from .table_zero import ZERO_WIDTH
 from .text_sizing import TextSizing, TextSizingParams
 from .table_ambiguous import AMBIGUOUS_EASTASIAN
 from .escape_sequences import iter_sequences
+from .fixed_table import (CharSpan,
+                          FieldSplit,
+                          SpanKind,
+                          iter_char_spans,
+                          parse_fixed_width_table,
+                          reassemble_fixed_width,
+                          split_fixed_width)
 from .unicode_versions import list_versions
 
 # Optional C extension 'wcwidth._wcwidth_c', wrapping the C11 libwcwidth
@@ -114,7 +122,9 @@ __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
            'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
            'list_versions', 'list_term_programs', 'propagate_sgr',
-           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
+           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams',
+           'CharSpan', 'FieldSplit', 'SpanKind', 'iter_char_spans',
+           'split_fixed_width', 'parse_fixed_width_table', 'reassemble_fixed_width')
 
 # Version is stamped by code generation (bin/update-tables.py) from pyproject.toml.
 __version__ = '0.9.5'
