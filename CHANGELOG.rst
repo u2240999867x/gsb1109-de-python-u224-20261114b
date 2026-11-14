@@ -10,6 +10,14 @@ dev
 
 **API Changes (Backward Compatible)**
 
+- Added a sanitising collection-report export, ``hpack.clean_records`` and
+  ``hpack.clean_record``.  Never-indexed header values are discarded while the
+  record is read and are represented by ``hpack.REDACTED``; ordinary empty
+  values use the distinct ``hpack.EMPTY`` marker.  Restricted fields may
+  disclose only the aggregates explicitly permitted by ``hpack.ReportPolicy``,
+  and neither the statistics record nor error summaries can expose a restricted
+  value.
+
 **Bugfixes**
 
 

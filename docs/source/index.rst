@@ -33,6 +33,7 @@ Contents
 
    installation
    api
+   report
    security/index
 
 
