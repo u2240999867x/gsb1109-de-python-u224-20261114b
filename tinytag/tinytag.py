@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
     _StringListDict = Dict[str, List[str]]
     _ImageListDict = Dict[str, List['Image']]
+    _SyncedLyricsList = List['SyncedLyrics']
     _AtomParser = Callable[
         [bytes],
         Iterator[
@@ -54,9 +55,25 @@ if TYPE_CHECKING:
     _AtomTreeDict = Dict[bytes, Union['_AtomTreeDict', _AtomParser]]
 else:
     _StringListDict = _ImageListDict = dict
+    _SyncedLyricsList = list
 
 # some of the parsers can print debug info
 _DEBUG = bool(environ.get('TINYTAG_DEBUG'))
+
+# ID3 synchronized lyrics timestamp formats and content types (SYLT frame)
+_SYNCED_LYRICS_MILLISECONDS = 'milliseconds'
+_SYNCED_LYRICS_MPEG_FRAMES = 'mpeg_frames'
+_SYNCED_LYRICS_CONTENT_TYPES = (
+    'other',
+    'lyrics',
+    'text_transcription',
+    'movement_part_name',
+    'events',
+    'chord',
+    'trivia',
+    'urls_to_webpages',
+    'urls_to_images',
+)
 
 
 class TinyTagException(Exception):
@@ -112,6 +129,7 @@ class TinyTag:
 
         self.images = Images()
         self.other = OtherFields()
+        self.synced_lyrics = SyncedLyricsList()
 
         self._filehandler: BinaryIO | None = None
         self._default_encoding: str | None = None  # override for some formats
@@ -120,7 +138,9 @@ class TinyTag:
         self._load_image = False
         self._duration_parsed = False
         self._tags_parsed = False
-        self.__dict__: dict[str, str | float | Images | OtherFields | None]
+        self.__dict__: dict[
+            str, str | float | Images | OtherFields | SyncedLyricsList | None
+        ]
 
     @classmethod
     def get(cls,
@@ -192,7 +212,7 @@ class TinyTag:
         for key, value in self.__dict__.items():
             if key.startswith('_'):
                 continue
-            if isinstance(value, Images):
+            if isinstance(value, (Images, SyncedLyricsList)):
                 continue
             if not isinstance(value, OtherFields):
                 if value is None:
@@ -343,6 +363,8 @@ class TinyTag:
                         self._set_other_field(other_key, other_value)
             elif isinstance(value, Images):
                 self.images._update(value)  # pylint: disable=protected-access
+            elif isinstance(value, SyncedLyricsList):
+                self.synced_lyrics.extend(value)
             elif value is not None:
                 self._set_field(key, value)
 
@@ -486,6 +508,78 @@ class OtherFields(_StringListDict):
 
 class OtherImages(_ImageListDict):
     """A dictionary containing additional images embedded in an audio file."""
+
+
+class LyricsLine:
+    """A single line of an ID3 synchronized lyrics (SYLT) frame."""
+
+    def __init__(self,
+                 index: int,
+                 text: str,
+                 timestamp: int,
+                 timestamp_unit: str,
+                 time: float | None = None) -> None:
+        self.index = index
+        self.text = text
+        self.timestamp = timestamp
+        self.timestamp_unit = timestamp_unit
+        self.time = time
+
+    def __repr__(self) -> str:
+        variables = vars(self).copy()
+        data_str = ', '.join(f'{key}={value!r}'
+                             for key, value in variables.items())
+        return f'{type(self).__name__}({data_str})'
+
+
+class SyncedLyrics:
+    """ID3 synchronized lyrics (SYLT frame).
+
+    The timestamp unit is either 'milliseconds' or 'mpeg_frames', as stored
+    in the frame. Lines keep their original position in 'index' and their raw
+    timestamp in 'timestamp'; 'time' holds the position in seconds. It is
+    only available for MPEG frame timestamps when the audio parameters
+    (MPEG version, layer and sample rate) are known, otherwise it is None and
+    the raw frame count must not be interpreted as milliseconds.
+    """
+
+    def __init__(self,
+                 language: str,
+                 content_type: str,
+                 descriptor: str,
+                 timestamp_unit: str,
+                 lines: list[LyricsLine]) -> None:
+        self.language = language
+        self.content_type = content_type
+        self.descriptor = descriptor
+        self.timestamp_unit = timestamp_unit
+        self.lines = lines
+
+    def __repr__(self) -> str:
+        variables = vars(self).copy()
+        data_str = ', '.join(f'{key}={value!r}'
+                             for key, value in variables.items())
+        return f'{type(self).__name__}({data_str})'
+
+    def line_at(self, seconds: float) -> LyricsLine | None:
+        """Return the line active at the given position in seconds.
+
+        Requires comparable times (see the 'time' attribute of the lines);
+        returns None when no line has a comparable time or none is active yet.
+        """
+        active_line: LyricsLine | None = None
+        for line in self.lines:
+            line_time = line.time
+            if line_time is None or line_time > seconds:
+                continue
+            if (active_line is None or active_line.time is None
+                    or line_time >= active_line.time):
+                active_line = line
+        return active_line
+
+
+class SyncedLyricsList(_SyncedLyricsList):
+    """A list containing synchronized lyrics (SYLT frames) of a file."""
 
 
 class _MP4(TinyTag):
@@ -1068,6 +1162,8 @@ class _ID3(TinyTag):
         self._only_id3 = False
         self._modern_grouping_values: list[str] = []
         self._legacy_grouping_values: list[str] = []
+        self._pending_synced_lyrics: list[SyncedLyrics] = []
+        self._mpeg_samples_per_frame = 0
 
     def _parse(self, fh: BinaryIO) -> None:
         audio_offset = fh.tell()
@@ -1111,6 +1207,8 @@ class _ID3(TinyTag):
             mpeg_tag._end_padding = end_padding
             mpeg_tag._load(tags=False, duration=self._parse_duration)
             self._update(mpeg_tag)
+            self._mpeg_samples_per_frame = mpeg_tag._samples_per_frame
+            self._resolve_mpeg_frame_timestamps()
         self._tags_parsed = self._parse_tags
         self._duration_parsed = self._parse_duration
 
@@ -1258,18 +1356,30 @@ class _ID3(TinyTag):
         seconds, cs = divmod(cs, 100)
         return f"{minutes:02d}:{seconds:02d}.{cs:02d}"
 
-    def _parse_synced_lyrics(self, content: bytes) -> str:
-        # Convert ID3 synced lyrics to LRC format
-        lyrics = ""
+    def _parse_synced_lyrics(self, content: bytes) -> SyncedLyrics | None:
+        # Parse an ID3 synchronized lyrics (SYLT) frame
         content_length = len(content)
+        if content_length < 6:
+            return None
         encoding = content[0]
-        # skip language (3)
+        language = content[1:4].decode('ISO-8859-1')
         timestamp_format = content[4]
-        # skip content type (1)
+        if timestamp_format == 0x02:
+            timestamp_unit = _SYNCED_LYRICS_MILLISECONDS
+        else:
+            # timestamp format 0x01: MPEG audio frame numbers
+            timestamp_unit = _SYNCED_LYRICS_MPEG_FRAMES
+        content_type_id = content[5]
+        if content_type_id < len(_SYNCED_LYRICS_CONTENT_TYPES):
+            content_type = _SYNCED_LYRICS_CONTENT_TYPES[content_type_id]
+        else:
+            content_type = _SYNCED_LYRICS_CONTENT_TYPES[0]
         start_pos = 6
         end_pos = self._find_string_end_pos(content, encoding, start_pos)
+        descriptor = self._decode_string(
+            content[start_pos:end_pos], encoding)
         offset = end_pos
-        found_line = False
+        lines: list[LyricsLine] = []
         while offset < content_length:
             end_pos = self._find_string_end_pos(content, encoding, offset)
             value = self._decode_string(
@@ -1277,19 +1387,51 @@ class _ID3(TinyTag):
             offset = end_pos
             if offset + 4 > content_length:
                 break
-            time = unpack_from('>I', content, offset)[0]
+            timestamp = unpack_from('>I', content, offset)[0]
             offset += 4
+            time: float | None
+            if timestamp_unit == _SYNCED_LYRICS_MILLISECONDS:
+                time = timestamp / 1000
+            else:
+                # Keep the raw MPEG frame count until the audio parameters
+                # (MPEG version, layer and sample rate) are known
+                time = None
+            lines.append(LyricsLine(
+                len(lines), value, timestamp, timestamp_unit, time))
+        return SyncedLyrics(
+            language, content_type, descriptor, timestamp_unit, lines)
+
+    def _synced_lyrics_to_lrc(self, synced_lyrics: SyncedLyrics) -> str:
+        # Convert parsed ID3 synced lyrics to LRC format
+        lyrics = ""
+        found_line = False
+        for line in synced_lyrics.lines:
             if found_line:
                 lyrics += '\n'
             found_line = True
-            if timestamp_format == 0x02:
-                # time in milliseconds
-                timestamp = self._lrc_timestamp(time / 1000)
-            else:
-                lyrics += value
+            if line.timestamp_unit != _SYNCED_LYRICS_MILLISECONDS:
+                # MPEG frame timestamps can't be rendered as LRC clock times
+                lyrics += line.text
                 continue
-            lyrics += f'[{timestamp}]{value}'
+            timestamp = self._lrc_timestamp(line.timestamp / 1000)
+            lyrics += f'[{timestamp}]{line.text}'
         return lyrics
+
+    def _resolve_mpeg_frame_timestamps(self) -> None:
+        # Convert MPEG frame timestamps to seconds once the audio parameters
+        # are known. Frame duration depends on the MPEG version and layer, so
+        # raw frame counts must never be treated as milliseconds.
+        if (self.samplerate is None or not self._pending_synced_lyrics
+                or not self._mpeg_samples_per_frame):
+            return
+        samples_per_frame = self._mpeg_samples_per_frame
+        for synced_lyrics in self._pending_synced_lyrics:
+            if synced_lyrics.timestamp_unit != _SYNCED_LYRICS_MPEG_FRAMES:
+                continue
+            for line in synced_lyrics.lines:
+                line.time = (
+                    line.timestamp * samples_per_frame / self.samplerate)
+        self._pending_synced_lyrics.clear()
 
     def _parse_frame(self,
                      fh: BinaryIO,
@@ -1381,8 +1523,12 @@ class _ID3(TinyTag):
                     self._set_field(fieldname, value)
         elif self._parse_tags and frame_id in self._SYNCED_LYRICS_FRAME_IDS:
             content = fh.read(frame_size)
-            lyrics = self._parse_synced_lyrics(content)
-            self._set_other_field('lyrics', lyrics)
+            synced_lyrics = self._parse_synced_lyrics(content)
+            if synced_lyrics is not None:
+                self._pending_synced_lyrics.append(synced_lyrics)
+                self.synced_lyrics.append(synced_lyrics)
+                lyrics = self._synced_lyrics_to_lrc(synced_lyrics)
+                self._set_other_field('lyrics', lyrics)
         elif self._parse_tags and frame_id in self._CUSTOM_FRAME_IDS:
             # custom fields
             content = fh.read(frame_size)
@@ -1523,6 +1669,7 @@ class _MPEG(TinyTag):
     def __init__(self) -> None:
         super().__init__()
         self._end_padding = 0
+        self._samples_per_frame = 0
 
     def _parse(self, fh: BinaryIO) -> None:
         self.mime_type = 'audio/mpeg'
@@ -1573,6 +1720,8 @@ class _MPEG(TinyTag):
             frame_br = self._BITRATE_VERSION_LAYERS[mpeg_id][layer_id][br_id]
             self.samplerate = samplerate = self._SAMPLE_RATES[mpeg_id][sr_id]
             samples_pf = self._SAMPLES_PER_FRAME[mpeg_id][layer_id]
+            if self._samples_per_frame == 0:
+                self._samples_per_frame = samples_pf
             slot_size = self._SLOT_SIZES[layer_id]
             coefficient = (samples_pf // 8 // slot_size) * 1000
             frame_length = (

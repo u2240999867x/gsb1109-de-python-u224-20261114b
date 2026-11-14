@@ -445,6 +445,56 @@ if fish_images:
     description = image.description
 ```
 
+### Synchronized Lyrics
+
+ID3 synchronized lyrics (SYLT frames, including ID3v2.2 SLT frames) are
+exposed as structured objects through `synced_lyrics`, in addition to the LRC
+strings provided under `other.lyrics`:
+
+```python
+tag.synced_lyrics: SyncedLyricsList   # list of SyncedLyrics objects
+```
+
+Each `SyncedLyrics` object provides the following attributes:
+
+```python
+synced_lyrics.language: str            # three-letter language code
+synced_lyrics.content_type: str        # role of the content, e.g. 'lyrics'
+synced_lyrics.descriptor: str          # content descriptor
+synced_lyrics.timestamp_unit: str      # 'milliseconds' or 'mpeg_frames'
+synced_lyrics.lines: list[LyricsLine]  # ordered lines of the frame
+```
+
+Each `LyricsLine` keeps its original position and raw timestamp:
+
+```python
+lyrics_line.index: int                 # zero-based position in the frame
+lyrics_line.text: str                  # lyric text
+lyrics_line.timestamp: int             # raw value as stored in the frame
+lyrics_line.timestamp_unit: str        # clock the timestamp belongs to
+lyrics_line.time: float | None         # position in seconds, if comparable
+```
+
+The ID3 specification defines two clocks that are not interchangeable.
+Millisecond timestamps are converted directly. MPEG frame timestamps are
+converted using the MPEG version, layer and sample rate of the audio, since
+the duration of a frame depends on these parameters. When the audio
+parameters are not available (e.g. when parsing tags without duration),
+`time` is `None` and the raw frame count is kept in `timestamp`; frame
+numbers must never be interpreted as milliseconds.
+
+To find the line active at a comparable position in seconds, use `line_at`:
+
+```python
+from tinytag import TinyTag
+
+tag: TinyTag = TinyTag.get('/some/music.mp3')
+for synced_lyrics in tag.synced_lyrics:
+    line = synced_lyrics.line_at(30.0)
+    if line is not None:
+        print(line.index, line.text)
+```
+
 ### Magic Byte Detection
 
 By default, tinytag will determine the file type by 1. checking the file name
@@ -487,6 +537,17 @@ UnsupportedFormatError  # File format is not supported
 
 
 ## Changelog
+
+### Unreleased
+
+- ID3: Expose synchronized lyrics (SYLT/SLT) as structured `SyncedLyrics`
+  objects with language, content type, original line index and raw timestamps
+  through the new `synced_lyrics` attribute
+- ID3: Convert MPEG frame timestamps to seconds using the audio MPEG version,
+  layer and sample rate, and keep raw frame counts when these parameters are
+  unavailable instead of treating frames as milliseconds
+- Add `SyncedLyrics.line_at()` for retrieving the lyric line at a given time
+- Keep the LRC representation of synchronized lyrics under `other.lyrics`
 
 ### 2.3.2  (2026-09-07)
 

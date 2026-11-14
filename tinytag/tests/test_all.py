@@ -16,7 +16,8 @@ from sys import stdout
 from unittest import skipIf, TestCase
 
 from tinytag import ParseError, TinyTagException, UnsupportedFormatError
-from tinytag import Image, Images, OtherFields, OtherImages, TinyTag
+from tinytag import (Image, Images, LyricsLine, OtherFields, OtherImages,
+                     SyncedLyrics, SyncedLyricsList, TinyTag)
 from tinytag.tinytag import _ID3, _MPEG, _Ogg, _Wave, _Flac, _ASF, _MP4, _Aiff
 
 TYPE_CHECKING = False
@@ -3324,7 +3325,8 @@ class TestAll(TestCase):
                 results = {
                     key: val for key, val in tag.__dict__.items()
                     if not key.startswith('_') and key != 'filename'
-                    and val is not None and not isinstance(val, Images)
+                    and val is not None and not isinstance(
+                        val, (Images, SyncedLyricsList))
                 }
                 self.compare_tag(results, expected)
 
@@ -3340,7 +3342,8 @@ class TestAll(TestCase):
                 results = {
                     key: val for key, val in tag.__dict__.items()
                     if not key.startswith('_') and key != 'filename'
-                    and val is not None and not isinstance(val, Images)
+                    and val is not None and not isinstance(
+                        val, (Images, SyncedLyricsList))
                 }
                 filtered_expected = {
                     key: val for key, val in expected.items()
@@ -3366,7 +3369,8 @@ class TestAll(TestCase):
                 results = {
                     key: val for key, val in tag.__dict__.items()
                     if not key.startswith('_') and key != 'filename'
-                    and val is not None and not isinstance(val, Images)
+                    and val is not None and not isinstance(
+                        val, (Images, SyncedLyricsList))
                     and not isinstance(val, OtherFields)
                 }
                 filtered_expected = {
@@ -3387,6 +3391,146 @@ class TestAll(TestCase):
                     if val is not None
                 }
                 self.compare_images(results, expected)
+
+    def test_synced_lyrics_milliseconds(self) -> None:
+        tag = TinyTag.get(os.path.join(
+            SAMPLE_FOLDER, 'synced_lyrics_milliseconds.mp3'))
+        self.assertIsInstance(tag.synced_lyrics, SyncedLyricsList)
+        self.assertNotIn('synced_lyrics', tag.as_dict())
+        self.assertEqual(len(tag.synced_lyrics), 1)
+        lyrics = tag.synced_lyrics[0]
+        self.assertEqual(lyrics.language, 'eng')
+        self.assertEqual(lyrics.content_type, 'lyrics')
+        self.assertEqual(lyrics.descriptor, '')
+        self.assertEqual(lyrics.timestamp_unit, 'milliseconds')
+        expected_lines = [
+            (0, '', 0, 0.0),
+            (1, 'first line', 1001, 1.001),
+            (2, 'second line', 1555, 1.555),
+            (3, 'third line', 5999, 5.999),
+        ]
+        self.assertEqual(len(lyrics.lines), len(expected_lines))
+        for line, (index, text, timestamp, time) in zip(
+                lyrics.lines, expected_lines):
+            self.assertIsInstance(line, LyricsLine)
+            self.assertEqual(line.index, index)
+            self.assertEqual(line.text, text)
+            self.assertEqual(line.timestamp, timestamp)
+            self.assertEqual(line.timestamp_unit, 'milliseconds')
+            self.assertEqual(line.time, time)
+        self.assertIs(lyrics.line_at(-1.0), None)
+        for seconds, index in ((1.0, 0), (1.001, 1), (1.555, 2), (99.0, 3)):
+            active_line = lyrics.line_at(seconds)
+            assert active_line is not None
+            self.assertEqual(active_line.index, index)
+        # The LRC representation stays available under other.lyrics
+        self.assertEqual(
+            tag.other['lyrics'],
+            ['[00:00.00]\n[00:01.00]first line\n[00:01.55]second line\n'
+             '[00:05.99]third line'])
+
+    def test_synced_lyrics_mpeg_frames(self) -> None:
+        # This sample uses MPEG audio frame numbers (timestamp format 0x01)
+        tag = TinyTag.get(os.path.join(
+            SAMPLE_FOLDER, 'synced_lyrics_invalid.mp3'))
+        self.assertEqual(len(tag.synced_lyrics), 1)
+        lyrics = tag.synced_lyrics[0]
+        self.assertEqual(lyrics.language, 'eng')
+        self.assertEqual(lyrics.content_type, 'lyrics')
+        self.assertEqual(lyrics.timestamp_unit, 'mpeg_frames')
+        # Sample is MPEG-1 Layer III, 44.1 kHz, 1152 samples per frame
+        expected = [
+            (0, '', 0, 0.0),
+            (1, 'first line', 1001, 1001 * 1152 / 44100),
+            (2, 'second line', 1555, 1555 * 1152 / 44100),
+            (3, 'third line', 5999, 5999 * 1152 / 44100),
+        ]
+        self.assertEqual(len(lyrics.lines), len(expected))
+        for line, (index, text, timestamp, time) in zip(
+                lyrics.lines, expected):
+            self.assertEqual(line.index, index)
+            self.assertEqual(line.text, text)
+            # Raw frame count is preserved, not interpreted as milliseconds
+            self.assertEqual(line.timestamp, timestamp)
+            self.assertEqual(line.timestamp_unit, 'mpeg_frames')
+            assert line.time is not None
+            self.assertAlmostEqual(line.time, time)
+        # Frame 1001 must resolve to ~26.15s, never 1.001s
+        first_line = lyrics.lines[1]
+        assert first_line.time is not None
+        self.assertNotAlmostEqual(first_line.time, 1.001)
+        self.assertAlmostEqual(first_line.time, 26.14857142857143)
+        for seconds, index in ((0.0, 0), (30.0, 1), (157.0, 3)):
+            active_line = lyrics.line_at(seconds)
+            assert active_line is not None
+            self.assertEqual(active_line.index, index)
+        # Frame clock timestamps can't be rendered as LRC clock times
+        self.assertEqual(
+            tag.other['lyrics'], ['\nfirst line\nsecond line\nthird line'])
+
+    def test_synced_lyrics_without_audio_parameters(self) -> None:
+        # With duration parsing disabled, the MPEG parameters are unknown and
+        # frame timestamps must remain raw values instead of being guessed
+        tag = TinyTag.get(os.path.join(
+            SAMPLE_FOLDER, 'synced_lyrics_invalid.mp3'),
+            tags=True, duration=False)
+        lyrics = tag.synced_lyrics[0]
+        self.assertEqual(
+            [line.timestamp for line in lyrics.lines],
+            [0, 1001, 1555, 5999])
+        self.assertTrue(all(
+            line.timestamp_unit == 'mpeg_frames' for line in lyrics.lines))
+        self.assertTrue(all(line.time is None for line in lyrics.lines))
+        self.assertIsNone(lyrics.line_at(30.0))
+
+    def test_synced_lyrics_frame_parsing(self) -> None:
+        id3 = _ID3()
+        # Latin-1, German, MPEG frame clock, content type 3 (movement part),
+        # including a repeated line at the same position (e.g. a chorus)
+        content = (
+            b'\x00deu\x01\x03'
+            + b'Text\x00'
+            + b'Zeile eins\x00' + (100).to_bytes(4, 'big')
+            + b'Zeile zwei\x00' + (200).to_bytes(4, 'big')
+            + b'Zeile zwei\x00' + (200).to_bytes(4, 'big')
+        )
+        lyrics = id3._parse_synced_lyrics(content)
+        self.assertIsInstance(lyrics, SyncedLyrics)
+        assert lyrics is not None
+        self.assertEqual(lyrics.language, 'deu')
+        self.assertEqual(lyrics.content_type, 'movement_part_name')
+        self.assertEqual(lyrics.descriptor, 'Text')
+        self.assertEqual(lyrics.timestamp_unit, 'mpeg_frames')
+        self.assertEqual(
+            [line.index for line in lyrics.lines], [0, 1, 2])
+        self.assertEqual(
+            [line.timestamp for line in lyrics.lines], [100, 200, 200])
+        self.assertTrue(all(line.time is None for line in lyrics.lines))
+        # MPEG-2 Layer III at 22.05 kHz: 576 samples per frame
+        id3.samplerate = 22050
+        id3._mpeg_samples_per_frame = 576
+        id3._pending_synced_lyrics.append(lyrics)
+        id3._resolve_mpeg_frame_timestamps()
+        for index, timestamp in ((0, 100), (1, 200)):
+            line_time = lyrics.lines[index].time
+            assert line_time is not None
+            self.assertAlmostEqual(line_time, timestamp * 576 / 22050)
+        self.assertEqual(id3._pending_synced_lyrics, [])
+        # Unknown content type ids fall back to 'other'
+        unknown = (
+            b'\x00eng\x02\x09' + b'\x00'
+            + b'a\x00' + (1).to_bytes(4, 'big'))
+        unknown_lyrics = id3._parse_synced_lyrics(unknown)
+        assert unknown_lyrics is not None
+        self.assertEqual(unknown_lyrics.content_type, 'other')
+        # Frames without a complete header are ignored
+        self.assertIsNone(id3._parse_synced_lyrics(b'\x00eng'))
+        # Empty frames contain no lines and produce no LRC text
+        empty_tag = TinyTag.get(os.path.join(
+            SAMPLE_FOLDER, 'synced_lyrics_empty.mp3'))
+        self.assertEqual(len(empty_tag.synced_lyrics), 1)
+        self.assertEqual(empty_tag.synced_lyrics[0].lines, [])
+        self.assertNotIn('lyrics', empty_tag.other)
 
     def test_pathlib_compatibility(self) -> None:
         testfile = next(iter(TEST_FILES.keys()))

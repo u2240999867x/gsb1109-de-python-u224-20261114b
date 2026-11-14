@@ -7,9 +7,11 @@ __version__ = '2.3.2'
 
 from .tinytag import (
     TinyTag, Image, Images, OtherFields, OtherImages,
+    LyricsLine, SyncedLyrics, SyncedLyricsList,
     TinyTagException, ParseError, UnsupportedFormatError
 )
 __all__ = (
     "TinyTag", "Image", "Images", "OtherFields", "OtherImages",
+    "LyricsLine", "SyncedLyrics", "SyncedLyricsList",
     "TinyTagException", "ParseError", "UnsupportedFormatError"
 )
