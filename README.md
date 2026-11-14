@@ -136,6 +136,9 @@ tag.duration: float | None       # audio duration in seconds
 tag.is_lossless: bool | None     # is audio lossless? (added in tinytag 2.3.0)
 tag.mime_type: str | None        # audio MIME type (added in tinytag 2.3.0) 
 tag.samplerate: int | None       # audio samples per second
+tag.bwf_time_reference: int | None       # BWF bext TimeReference (samples since midnight)
+tag.bwf_origination_date: date | None    # BWF bext OriginationDate (local collection day)
+tag.bwf_num_samples: int | None         # valid sample count of the audio data
 ```
 
 > [!WARNING]  
@@ -223,6 +226,16 @@ present when files provide such metadata:
 
     barcode
     bpm
+    bwf_loudness_range
+    bwf_loudness_value
+    bwf_max_momentary_loudness
+    bwf_max_short_term_loudness
+    bwf_max_true_peak_level
+    bwf_origination_time
+    bwf_originator
+    bwf_originator_reference
+    bwf_umid
+    bwf_version
     catalog_number
     conductor
     copyright
@@ -320,6 +333,42 @@ from tinytag import TinyTag
 tag: TinyTag = TinyTag.get('/some/music.mp3')
 metadata: dict = tag.as_dict()
 ```
+
+### Broadcast Wave Format (BWF)
+
+WAV files with a Broadcast Wave Extension (`bext`) chunk expose the recording
+TimeReference, the local collection day and the number of valid samples:
+
+```python
+tag.bwf_time_reference: int        # samples since local midnight
+tag.bwf_origination_date: date     # bext OriginationDate
+tag.bwf_num_samples: int           # valid samples (fact/data chunk)
+```
+
+The `tinytag.bwf` module joins consecutive recording reels into a continuous
+ledger. Because the next reel may use a different sample rate, every point on
+the shared timeline is an exact `fractions.Fraction` of a second, and each
+adjacent pair reports the precise overlap (negative) or gap (positive):
+
+```python
+from tinytag import TinyTag
+from tinytag.bwf import Reel, build_ledger
+
+reels = [
+    Reel.from_tag(TinyTag.get(path))
+    for path in ('/recordings/reel1.wav', '/recordings/reel2.wav')
+]
+ledger = build_ledger(reels)
+for relation in ledger.relations:
+    print(relation.kind, relation.delta)  # 'gap', 'overlap' or 'contiguous'
+```
+
+The collection day is only taken from the bext OriginationDate (or an explicit
+`Reel.from_tag(tag, day=...)` override). A smaller TimeReference never advances
+the day: a daytime re-recording on the same day is reported as an overlap
+instead of being joined across midnight. Reels without a collection day cannot
+be placed uniquely; pass an explicit date window to `candidate_ledgers()` to
+list every consistent candidate instead.
 
 ### Images
 
@@ -487,6 +536,14 @@ UnsupportedFormatError  # File format is not supported
 
 
 ## Changelog
+
+### Unreleased
+
+- WAV: Parse Broadcast Wave Format (`bext`) chunk data
+- Add `bwf_time_reference`, `bwf_origination_date` and `bwf_num_samples`
+  attributes for BWF wave files
+- Add `tinytag.bwf` module to build continuous recording ledgers with exact
+  fractional gap/overlap calculation across sample rate changes
 
 ### 2.3.2  (2026-09-07)
 

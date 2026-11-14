@@ -19,6 +19,7 @@ MP3_WITH_IMG = os.path.join(SAMPLE_FOLDER, 'image-text-encoding.mp3')
 BOGUS_FILE = os.path.join(SAMPLE_FOLDER, 'there_is_no_such_ext.bogus')
 TINYTAG_ATTRIBUTES = {
     'album', 'albumartist', 'artist', 'bitdepth', 'bitrate',
+    'bwf_num_samples', 'bwf_origination_date', 'bwf_time_reference',
     'channels', 'comment', 'composer', 'disc', 'disc_total', 'duration',
     'filesize', 'filename', 'genre', 'is_lossless', 'mime_type', 'samplerate',
     'title', 'track', 'track_total', 'year'

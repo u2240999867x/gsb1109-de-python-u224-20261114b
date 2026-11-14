@@ -32,6 +32,7 @@
 
 from __future__ import annotations
 from binascii import a2b_base64
+from datetime import date
 from io import BytesIO
 from os import PathLike, SEEK_CUR, SEEK_END, environ, fsdecode
 from struct import unpack, unpack_from
@@ -113,6 +114,11 @@ class TinyTag:
         self.images = Images()
         self.other = OtherFields()
 
+        # Broadcast Wave Format (BWF) bext chunk data
+        self.bwf_time_reference: int | None = None
+        self.bwf_origination_date: date | None = None
+        self.bwf_num_samples: int | None = None
+
         self._filehandler: BinaryIO | None = None
         self._default_encoding: str | None = None  # override for some formats
         self._parse_duration = True
@@ -186,7 +192,8 @@ class TinyTag:
         metadata."""
         audio_property_keys = {
             'filename', 'filesize', 'mime_type', 'duration', 'channels',
-            'bitrate', 'bitdepth', 'samplerate', 'is_lossless'
+            'bitrate', 'bitdepth', 'samplerate', 'is_lossless',
+            'bwf_time_reference', 'bwf_num_samples'
         }
         fields: dict[str, str | float | list[str]] = {}
         for key, value in self.__dict__.items():
@@ -1995,6 +2002,7 @@ class _Wave(TinyTag):
         block_align = 0
         audio_size = 0
         num_samples = 0
+        has_bext = False
         header_len = 8
         chunk_header = fh.read(header_len)
         while len(chunk_header) == header_len:
@@ -2061,6 +2069,8 @@ class _Wave(TinyTag):
                 chunk = self._unpad_bytes(fh.read(subchunk_size))
                 value = chunk.decode('utf-8', 'replace')
                 self._set_other_field('xmp', value)
+            elif self._parse_tags and chunk_header.startswith(b'bext'):
+                has_bext = self._parse_bext(fh.read(subchunk_size))
             else:  # some other chunk, just skip the data
                 fh.seek(subchunk_size, SEEK_CUR)
             chunk_header = fh.read(header_len)
@@ -2075,8 +2085,94 @@ class _Wave(TinyTag):
         elif block_align and self.samplerate:
             self.duration = audio_size / (block_align * self.samplerate)
             self.bitrate = block_align * self.samplerate * 8 / 1000
+        if has_bext:
+            self.bwf_num_samples = self._effective_num_samples(
+                num_samples, audio_size, block_align)
         self._duration_parsed = self._parse_duration
         self._tags_parsed = self._parse_tags
+
+    @staticmethod
+    def _effective_num_samples(num_samples: int,
+                               audio_size: int,
+                               block_align: int) -> int:
+        # Prefer the fact chunk sample count; fall back to the data chunk
+        # size for PCM-style audio without a fact chunk.
+        if num_samples:
+            return num_samples
+        if block_align:
+            return audio_size // block_align
+        return 0
+
+    _BWF_MAPPING = {
+        'Description': 'comment',
+        'Originator': 'other.bwf_originator',
+        'OriginatorReference': 'other.bwf_originator_reference',
+        'OriginationDate': None,
+        'OriginationTime': 'other.bwf_origination_time',
+        'TimeReference': None,
+        'Version': 'other.bwf_version',
+        'UMID': 'other.bwf_umid',
+        'LoudnessValue': 'other.bwf_loudness_value',
+        'LoudnessRange': 'other.bwf_loudness_range',
+        'MaxTruePeakLevel': 'other.bwf_max_true_peak_level',
+        'MaxMomentaryLoudness': 'other.bwf_max_momentary_loudness',
+        'MaxShortTermLoudness': 'other.bwf_max_short_term_loudness',
+    }
+
+    def _parse_bext(self, chunk: bytes) -> bool:
+        # EBU Tech 3285 / EBU R 123: Broadcast Wave Format bext chunk.
+        # Fixed-width fields are zero-padded; the chunk may be truncated or
+        # extended by later versions, so every read is bounds-checked.
+        if len(chunk) < 348:
+            return False
+        fields = (
+            ('Description', 256),
+            ('Originator', 32),
+            ('OriginatorReference', 32),
+            ('OriginationDate', 10),
+            ('OriginationTime', 8),
+        )
+        offset = 0
+        values: dict[str, str] = {}
+        for field_name, field_size in fields:
+            raw = self._unpad_bytes(chunk[offset:offset + field_size])
+            values[field_name] = raw.decode('ascii', 'replace').strip()
+            offset += field_size
+        time_reference_low, time_reference_high = unpack_from(
+            '<II', chunk, offset)
+        self.bwf_time_reference = (
+            time_reference_low + (time_reference_high << 32))
+        offset += 8
+        version = unpack_from('<H', chunk, offset)[0]
+        values['Version'] = str(version)
+        offset += 2
+        umid = self._unpad_bytes(chunk[offset:offset + 64])
+        if umid:
+            values['UMID'] = umid.hex().upper()
+        offset += 64
+        if len(chunk) >= 422:
+            loudness_values = unpack_from('<5h', chunk, offset)
+            loudness_names = (
+                'LoudnessValue', 'LoudnessRange', 'MaxTruePeakLevel',
+                'MaxMomentaryLoudness', 'MaxShortTermLoudness',
+            )
+            for loudness_name, loudness_value in zip(
+                    loudness_names, loudness_values):
+                if loudness_value:
+                    values[loudness_name] = str(loudness_value)
+        origination_date = values.get('OriginationDate', '')
+        if len(origination_date) == 10:
+            try:
+                self.bwf_origination_date = date.fromisoformat(
+                    origination_date)
+            except ValueError:
+                pass
+        for field_name, value in values.items():
+            target_field = self._BWF_MAPPING.get(field_name)
+            if target_field is None or not value:
+                continue
+            self._set_field(target_field, value)
+        return True
 
 
 class _Flac(TinyTag):
