@@ -10,3 +10,10 @@ try:
     __version__ = importlib_metadata.version(__name__)
 except importlib_metadata.PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
+
+from .provenance import (  # noqa: E402,F401
+    Declaration,
+    LayeredCalendar,
+    Resolution,
+    SourceLevel,
+)

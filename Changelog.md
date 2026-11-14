@@ -3,6 +3,10 @@
 ## master (unreleased)
 
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
+- Added ``workalendar.provenance``: layered group / branch / personal
+  notices resolved as of their publication time, with explicit winners,
+  shadowed declarations, same-level pending conflicts, withdrawn notices
+  and version selection.
 
 ## v17.0.0 (2023-01-01)
 
