@@ -1,0 +1,26 @@
+# Compiled files
+__pycache__/
+*.pyc
+
+# Distribution
+*.egg-info
+.eggs/
+build/
+dist/
+
+# Testing
+.tox/
+.coverage
+coverage.xml
+.hypothesis/
+
+# PyCharm
+.idea
+
+# Documentation
+docs/_build/
+# written by sphinx.ext.duration when building the man page
+man/sphinx-reading-durations.json
+
+# Virtual environments
+.venv/

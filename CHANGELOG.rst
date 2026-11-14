@@ -1,0 +1,271 @@
+History
+=======
+
+0.8.0 (08-11-2026)
+------------------
+
+See the upgrade notes at https://webvtt-py.readthedocs.io/en/latest/upgrading.html
+for what to change in code using the library.
+
+Changes that may need updates to the code using the library:
+
+* ``total_length`` returns a float with the milliseconds, from the earliest start to the latest end of the captions, instead of whole seconds from the first caption to the last one, which was wrong for captions out of order, thanks to `@emirmrkaljevic <https://github.com/emirmrkaljevic>`_ (#188, #193)
+* ``Style`` and ``WebVTT`` are equal when they have the same content, instead of only to themselves, and cannot be used in sets or as dictionary keys, as ``Caption`` and ``Region`` (#174)
+* ``save_as_srt`` keeps the Byte Order Mark of the file that was read and saves in its encoding, as ``save`` does, instead of saving in UTF-8 without it, and ``from_srt`` and ``from_sbv`` keep the Byte Order Mark as ``read`` does, so ``save`` also keeps it for SRT and SBV files read with one (#177)
+* SRT ``font`` tags with a colour are read as ``c`` tags with a class named from the colour, as in ``<c.color-ff0000>``, and a ``STYLE`` block with the colours, the inverse of ``save_as_srt(keep_formatting=True)``, and other ``font`` tags are removed, keeping their text. ``{\anN}`` tags are read as the ``line`` and ``align`` cue settings and removed from the text, and ``save_as_srt`` and ``write(format='srt')`` write them back from those settings (#178)
+* The commands of the CLI read files with the ``.srt`` and ``.sbv`` extensions as SRT and SBV, so a WebVTT file with one of them needs ``--format vtt`` (#181)
+
+Changes:
+
+* Added an ``errors`` argument to ``read``, ``from_srt``, ``from_sbv`` and ``from_buffer``, passed to the decoder (``'strict'`` by default), to read files with bytes that are not valid in their encoding, thanks to `@emirmrkaljevic <https://github.com/emirmrkaljevic>`_ (#180, #212)
+* The errors of strict parsing start with the line number of the block, as in ``line 42: Invalid cue block [...]`` (#170)
+* Added the ``parse_issues`` attribute to ``WebVTT``, with the ``ParseIssue`` of each block that was skipped when reading WebVTT, SRT or SBV (#170)
+* Added the ``overlapping`` argument to ``iter_slice`` to also return the captions with part of them in the range, and ``clip`` to return copies of them trimmed to the range (#172)
+* Moved the packaging to ``pyproject.toml``, and ``make build`` builds with ``python -m build`` without regenerating the man page (#184)
+* Removed ``webvtt.__author__`` and ``webvtt.__author_email__``, as the author is in the package metadata (#184)
+* Added ``start_in_milliseconds``, ``end_in_milliseconds`` and ``duration`` to ``Caption``, thanks to `@emirmrkaljevic <https://github.com/emirmrkaljevic>`_ (#188, #193)
+* The times of ``Caption``, its ``start`` and ``end``, ``iter_slice`` and the ``start`` of ``shift`` can be ``Timestamp`` objects, numbers of seconds or ``timedelta`` objects, as with ``sync``, besides timestamp strings (#171)
+* ``sync`` raises ``ValueError`` for a ``Timestamp`` before zero, as it does for the other times, and ``TypeError`` for one with fields that are not integers, instead of moving the captions to timestamps that cannot be written (#171)
+* Added ``Caption.copy()`` and ``WebVTT.copy()``, which return copies that share nothing with the original, and a ``repr`` for ``Style`` (#174)
+* Added the ``drop_before_zero`` argument of ``shift`` and the ``--drop-before-zero`` option of the ``shift`` command of the CLI, which remove the captions that end at or before zero after shifting them, instead of keeping them at ``00:00:00.000 --> 00:00:00.000`` (#173)
+* Added ``Caption.voices``, the voices of every voice span in the text, in order, as ``Caption.voice`` only reads a voice span at the start of the caption (#175)
+* Added ``WebVTT.sort()``, which sorts the captions by start time, and ``WebVTT.validate()``, which returns a ``ValidationIssue`` for each caption out of order, not ending after it starts, in a region that is not defined, overlapping an earlier one or without text, and the ``validate`` command of the CLI, which also reports the blocks skipped when reading (#176)
+* Added the ``format`` argument of ``from_string`` to read SRT and SBV from a string, ``to_string`` to get the captions as a string in any format, writing SBV with ``write(format='sbv')`` and ``save_as_sbv``, and the ``add_bom`` argument of ``save_as_srt``, as in ``save`` (#177)
+* ``keep_formatting`` reads the colours of ``::cue()`` selectors with a tag name, more than one class or both, as in ``::cue(c.loud)``, ``::cue(.loud.red)`` or ``::cue(b)``, and of class names with any character that WebVTT allows, written with CSS escapes, as in ``::cue(.c\+1)``, and the rule with the most classes, then with a tag name, applies before a later one, as in CSS (#179)
+* The commands of the CLI read SRT and SBV files, in the format of their extension or of the new ``--format`` option, with the new ``--encoding`` option for files in another encoding, and ``shift`` and ``sync`` write them in the same format, or in the format of the extension of the output. Added the ``convert`` command, which converts between WebVTT, SRT and SBV, as in ``webvtt convert captions.srt -o captions.vtt`` (#181)
+* Parsing is faster, by about a third for WebVTT and SRT and 40% for SBV on files with many cues, as empty cue settings are built without validating each setting, the parsed settings and times are kept instead of copied, the compiled patterns are used directly and the cue timings are only looked for until they are found (#182)
+* The type hints use the Python 3.10 syntax and are complete, checked with ``mypy --strict``, the path arguments of ``read``, ``from_srt``, ``from_sbv``, ``save``, ``save_as_srt``, ``save_as_sbv`` and ``segment`` are annotated as ``str | os.PathLike``, as ``pathlib.Path`` objects already worked, and indexing ``WebVTT`` with a slice is typed as a list of captions (#183)
+* Styles keep the whitespace at the start of their first line and at the end of their last line when read, so that a style is read back as it was saved (#186)
+* Added property-based tests with Hypothesis, tests that save every sample and read it again, and tests that run the examples of the documentation (#186)
+* The ``--start`` option of the ``shift`` command of the CLI accepts a number of seconds, as in ``webvtt shift captions.vtt 3 --start 47``, besides a timestamp, and a number of seconds after the largest timestamp is reported as an invalid ``--start`` or ``--point`` argument (#217)
+* Releases are published to PyPI from CI with trusted publishing when a GitHub release is published, and to TestPyPI when the release workflow is run by hand, instead of ``make release`` and ``make release_test``, which are removed. CI checks the code style and types and builds the documentation, with ``nitpicky`` references and ``make docs``, apart from the tests, and Dependabot updates the actions, pinned by commit, and the documentation requirements (#185)
+
+0.7.0 (01-11-2026)
+------------------
+
+See the upgrade notes at https://webvtt-py.readthedocs.io/en/latest/upgrading.html
+for what to change in code using the library.
+
+Changes that may need updates to the code using the library:
+
+* Requires Python 3.10 or later, as Python 3.7, 3.8 and 3.9 are end-of-life (#136, #148)
+* Strict parsing raises ``MalformedCaptionError`` for cues whose end time is not after the start time, for blocks that are not a cue, comment, style or region, such as text without cue timings, for comments where ``NOTE`` is not followed by a space, a tab or a line break, or with ``-->``, and for styles after the first cue (#97, #133)
+* Writing WebVTT raises ``ValueError`` for ``-->`` in a comment or in the header text, which WebVTT does not allow (#134, #135)
+* ``NOTE`` blocks with ``-->`` are not read as comments, and header text with ``-->`` is read as empty, as WebVTT does, so the file can be saved again (#134, #135)
+* Removed ``Caption.CUE_TEXT_TAGS``, which is no longer used (#139, #153)
+* ``save``, ``save_as_srt`` and the ``-o`` option of the CLI write a path with an extension as given, instead of adding ``.vtt`` or ``.srt`` to it, so ``captions.webvtt`` is no longer saved as ``captions.webvtt.vtt`` (#144, #156)
+* ``save`` and ``save_as_srt`` without a path or with a folder, and the ``-o`` option of the CLI with a folder, keep the extension of the file when it is already of the format, so a file read from ``captions.webvtt`` is saved to it instead of ``captions.vtt`` (#159, #195)
+* ``from_buffer`` raises ``TypeError`` for a string or bytes, instead of ``MalformedFileError``: use ``from_string`` to read a string, or ``io.BytesIO`` to read bytes (#143, #157)
+* SRT cues without an index are read, as most SRT players do, instead of skipped (#142, #158)
+* Styles after the first cue and blocks where ``NOTE`` is not followed by a space, a tab or a line break, such as ``NOTEBOOK``, are ignored, as WebVTT does, and strict parsing raises ``MalformedFileError`` when ``WEBVTT`` is not followed by a space, a tab or the end of the first line, such as ``WEBVTTX`` (#141, #194)
+* ``save`` raises ``ValueError`` for ``add_bom=True`` with an encoding without a Byte Order Mark, such as ``latin-1``, and for ``add_bom=False`` with ``utf-8-sig``, ``utf-16`` or ``utf-32``, which always write one, instead of ignoring ``add_bom`` (#160, #196)
+* ``save_as_srt`` saves captions read with ``from_srt`` or ``from_buffer`` in SRT format and an ``encoding`` in the same encoding, instead of UTF-8, and ``encoding=None`` saves in UTF-8 instead of the encoding of the locale (#161, #197)
+* Setting ``Caption.text`` to a value that is not a string or a sequence of lines raises ``TypeError`` instead of ``AttributeError``, and ``Caption`` raises it for lines that are not strings instead of accepting them (#162, #198)
+* ``WebVTT`` keeps empty lists given as arguments, as it does with other lists, instead of replacing them with new ones, and ``Style`` copies a list of lines, as ``Caption`` does, instead of keeping it (#163, #199)
+* ``segment`` raises ``FileExistsError``, and the ``segment`` command of the CLI exits with an error, when the output folder has the playlist or segments of an earlier run, instead of writing over them and keeping the segments the new playlist does not have: use ``overwrite=True`` or ``--overwrite`` to replace them (#164, #200)
+* ``from_buffer`` raises ``ValueError`` for ``strict=True`` with the ``srt`` or ``sbv`` format, which have no strict parsing, instead of ignoring it (#167, #203)
+
+Changes:
+
+* Added reading binary file-like objects with ``from_buffer``, such as files opened in ``'rb'`` mode, with the encoding of their Byte Order Mark, kept when saving, or the new ``encoding`` argument (#143, #157)
+* Added setting ``Caption.text`` to a sequence of lines, as when creating a ``Caption`` (#162, #198)
+* Added ``WebVTTError`` as the base class of the errors, and made ``MalformedFileError`` and ``MalformedCaptionError`` subclasses of ``ValueError`` (#146, #155)
+* Added ``MalformedRegionError``, a subclass of ``MalformedCaptionError``, raised for region settings that are not valid and, with strict parsing, for regions after the first cue (#168, #204)
+* Added the ``overwrite`` argument of ``segment`` and the ``--overwrite`` option of the CLI, which replace the files of an earlier segmentation and delete its segments that the new playlist does not have (#164, #200)
+* Added the ``duration`` argument of ``segment``, ``slice_segments`` and ``write_manifest``, and the ``--duration`` option of the CLI, for the length of the media, so the HLS playlist covers all of it and its last segment ends with it instead of lasting the whole target duration (#165, #201)
+* Added segmenting a ``WebVTT`` instance with ``segment``, such as captions edited or read from another format, without saving them first, and reading the captions from standard input with ``-`` as the ``PATH`` of the ``segment`` command (#205, #209)
+* Added the ``--version`` option of the CLI, and reading the captions from standard input with ``-`` as the ``PATH`` of the ``shift`` and ``sync`` commands (#169, #207)
+* Added running the CLI with ``python -m webvtt`` (#210)
+* Fixed reading SRT files with whitespace around the first cue index, thanks to `@youdie006 <https://github.com/youdie006>`_ (#130)
+* Fixed WebVTT styles ignored when ``STYLE`` is followed by whitespace (#133)
+* Fixed WebVTT regions ignored after header text with ``-->`` (#135)
+* Fixed reading SRT and SBV files that start with blank lines or with a cue without text, which raised ``MalformedFileError`` (#142, #158)
+* Fixed non-ASCII digits read as numbers in timestamps and SRT cue indexes, thanks to `@emirmrkaljevic <https://github.com/emirmrkaljevic>`_ (#140, #147)
+* Fixed ``from_buffer`` keeping a name that is not a path as the ``file`` to save to, such as ``<stdin>`` or the file descriptor of a file opened from one, which ``save`` wrote to ``<stdin>.vtt`` or failed on with ``TypeError`` (#206, #208)
+* Fixed comparing a ``Timestamp`` with other types raising ``AttributeError``: ``==`` returns ``False`` and ordering comparisons raise ``TypeError`` (#137, #150)
+* Fixed the SRT output not ending with a line break (#138, #151)
+* Fixed SRT output of captions without text, such as text of blank lines, which were written as cues without text that are lost when read back: they are left out and the others numbered consecutively (#166, #202)
+* Fixed ``save`` leaving out the Byte Order Mark when the encoding is written differently, such as ``UTF-8`` or ``utf8`` (#160, #196)
+* Fixed HLS segments repeating a cue that ends on a segment boundary, and the playlist having no segments for captions without cues, thanks to `@radixun <https://github.com/radixun>`_ (#145, #149)
+* Fixed segmenting raising ``IndexError`` for a cue that ends before it starts, which is now written to the segment it starts in (#152, #154)
+* Fixed the ``read_buffer`` deprecation warning pointing at the library instead of the code calling it (#139, #153)
+
+0.6.0 (25-10-2026)
+------------------
+
+This is the last release supporting Python 3.7, 3.8 and 3.9.
+
+Changes that may need updates to the code using the library:
+
+* ``WebVTT`` takes keyword arguments only and does not read files, so ``WebVTT('captions.vtt')`` raises ``TypeError``: use ``webvtt.read`` to read captions from a file (#123)
+* Writing WebVTT raises ``ValueError`` for text that could not be read back, such as an empty line or ``-->`` in the text of a caption (#122)
+* Malformed cues are skipped when reading, instead of raising ``MalformedCaptionError``, unless ``strict=True`` (#93, #99)
+* Timestamps are limited to ``9999999999:59:59.999``: cues past it are skipped when reading, and ``shift``, ``sync`` and ``change_framerate`` raise ``ValueError`` instead of moving captions past it (#119)
+* The segment duration must be a whole number above zero, and the MPEG-TS value from 0 to 8589934591 (#125)
+
+Changes:
+
+* Added WebVTT regions (#108)
+* Added cue settings to captions (#107)
+* Added shift to captions, WebVTT and the CLI (#101)
+* Added sync and change_framerate to WebVTT and the CLI (#102)
+* Added Timestamp.from_seconds and Timestamp.in_milliseconds (#100)
+* Added strict option to raise on malformed cue blocks (#93)
+* Added keep_formatting to keep bold, italic, underline and the colours of the cue classes when saving SRT, thanks to `@darodi <https://github.com/darodi>`_ (#39, #118)
+* Added manpage and documentation for the webvtt command (#95)
+* Added py.typed marker for type checkers (#92)
+* Added support for Python 3.13, 3.14 and 3.15, and tests on Windows and macOS (#84, #126)
+* Improved parsing to follow the WebVTT spec for blocks (#98)
+* Improved parsing to accept non-padded timestamps such as ``0:0:7.5``, as in Microsoft Teams transcripts, thanks to `@apetresc <https://github.com/apetresc>`_ (#45, #99)
+* Improved writing to keep the header text and metadata (#103)
+* Improved splitting text into lines to only break on CR, LF and CRLF (#104, #105)
+* Improved reading of SRT cue timings to work as most SRT readers do (#114), and of SBV cue timings to carry over fields over their range (#115)
+* Allowed more than two digits for timestamp hours, thanks to `@hlecnt <https://github.com/hlecnt>`_ (#80) and `@uzumakienes <https://github.com/uzumakienes>`_ for SBV (#111)
+* Improved performance of Caption.text on long lines, thanks to `@BrianWillows <https://github.com/BrianWillows>`_ (#81), and of Caption.voice, thanks to `@uzumakienes <https://github.com/uzumakienes>`_ (#112)
+* Improved segments to keep the styles, regions and identifiers of the captions (#125)
+* Deprecated the file argument of WebVTT in favor of the file attribute (#123)
+* Fixed reading buffers with a leading BOM, thanks to `@natesute <https://github.com/natesute>`_ (#82)
+* Fixed the HLS playlist to use the configured segment duration, thanks to `@shkyyy18 <https://github.com/shkyyy18>`_ (#83)
+* Fixed IndexError in slice_segments when the last caption ends on a segment boundary, thanks to `@t-hiroishi <https://github.com/t-hiroishi>`_ (#70), and when the captions are not sorted by end time, thanks to `@uzumakienes <https://github.com/uzumakienes>`_ (#110)
+* Fixed SRT caption text lost after empty lines (#109) and after lines with only digits (#120)
+* Fixed saving leaving an empty file when the captions cannot be encoded (#121)
+* Fixed the API reference, the documentation of the exceptions and the examples (#90, #91, #127), and a docstring typo, thanks to `@Frenzie <https://github.com/Frenzie>`_ (#72)
+
+0.5.1 (30-05-2024)
+------------------
+
+* Added voice span support (#55)
+* Extended from_buffer support to allow BytesIO and also other format conversions (#32)
+* Fixed save SRT to not include cue tags, thanks to `@lilaboc <https://github.com/lilaboc>`_ (#56)
+* Fixed saved caption to include a line break after the last caption as per standard (#49)
+
+0.5.0 (15-05-2024)
+------------------
+
+* Added styles support
+* Added comments support
+* Added from_string
+* Added iterate over a slice of captions
+* Refactor of the library
+* Parser is no longer strict and ignores malformed blocks
+* Improved BOM support allowing to keep the BOM or remove it
+* Deprecated read_buffer in favor of from_buffer
+* Removed support for old versions of Python: 3.4, 3.5 and 3.6
+
+0.4.6 (18-11-2020)
+------------------
+
+* Add capability to get WebVTT formatted content without an output file, thanks to `@DawoudSheraz <https://github.com/DawoudSheraz>`_ (#34)
+* Add Python 3.9 support
+
+0.4.5 (09-04-2020)
+------------------
+
+* Fix issue reading buffer
+
+0.4.4 (27-03-2020)
+------------------
+
+* Allow parsing empty SBV captions, thanks to `@ishunyu <https://github.com/ishunyu>`_ (#26)
+* Fix invalid time cues, thanks to `@sontek <https://github.com/sontek>`_ (#19)
+* Enable pytest as test runner, thanks to `@sontek <https://github.com/sontek>`_ (#20)
+* Packaging improvements
+* Added Python 3.8 support
+* Improve parsing empty lines
+
+0.4.3 (22-11-2019)
+------------------
+
+* Parsing improvements, thanks to `@sontek <https://github.com/sontek>`_ (#18)
+* Add support for reading content from a file-like object, thanks to `@omerholz <https://github.com/omerholz>`_ (#23)
+* Documentation fixes thanks to `@sontek <https://github.com/sontek>`_ (#22) and `@netcmcc <https://github.com/netcmcc>`_ (#24)
+
+0.4.2 (08-06-2018)
+------------------
+
+* Renamed and reorganized few of the modules
+* Parsing methods are now class methods: read, from_srt and from_sbv
+* Improved usability with the addition of shortcuts to avoid instantiating the classes so we can do:
+
+import webvtt
+
+webvtt.read('captions.vtt')  # this will return a WebVTT instance
+
+
+0.4.1 (24-12-2017)
+------------------
+
+* Support for saving cue identifiers
+
+0.4.0 (18-09-2017)
+------------------
+
+The main goal of this release is a refactor of the WebVTT parser to be able to parse easier and give support to
+new features of the format.
+
+New features:
+
+* Support for cue identifiers
+* Support for parsing WebVTT captions with comments
+* Support for parsing WebVTT captions with Style blocks
+* Support for BOM in caption files
+* Added method to write the captions to an opened file
+* Convert WebVTT to SRT format
+* Ignore empty captions in SRT format
+
+Other:
+
+* Refactored WebVTT parser
+
+0.3.3 (23-08-2017)
+------------------
+
+The text for the caption is now returned clean (tags removed). The cue text could contain tags like:
+* timestamp tags: *<00:19.000>*
+* class tags: *<c.classname>text</c>*
+* and others...
+**Important**: It currently removes any tag present in the cue text. For example <b> would be removed.
+
+Also a new attribute is available on captions to retrieve the text without cleaning tags: **raw_text**
+
+0.3.2 (11-08-2017)
+------------------
+
+The goal of this release if to allow the WebVTT parser to be able to read caption files that contain metadata headers
+that extend to more than one line.
+
+0.3.1 (08-08-2017)
+------------------
+
+* Made hours in WebVTT parser optional as per specs.
+* Added support to parse WebVTT files that contain metadata headers.
+
+0.3.0 (02-06-2016)
+------------------
+
+New features:
+
+* Added support for YouTube SBV captions.
+* Added easy iteration to WebVTT class.
+* New CLI command for segmenting captions for HLS.
+
+Other:
+
+* Improved parsers to reuse functionality.
+* Added an exception for invalid timestamps in captions.
+* Added an exception when saving without a filename.
+
+0.2.0 (23-05-2016)
+------------------
+
+* Refactor of the main module and parsers.
+
+
+0.1.0 (20-05-2016)
+------------------
+
+This module is released with the following initial features:
+
+* Read/Edit/Write WebVTT captions.
+* Read SRT captions and convert to WebVTT.
+* Segment WebVTT files for captioning HLS video.

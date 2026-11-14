@@ -1,0 +1,319 @@
+import io
+import unittest
+import textwrap
+
+from webvtt import sbv
+from webvtt.errors import MalformedFileError
+from webvtt.models import Caption
+
+
+class TestSBVCueBlock(unittest.TestCase):
+
+    def test_is_valid(self):
+        self.assertTrue(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            00:00:00.500,00:00:07.000
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertTrue(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            0:0:0.500,0:0:7.000
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertTrue(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            00:00:00.500,00:00:07.000
+            Caption #1 line 1
+            Caption #1 line 2
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            00:00:00.500 --> 00:00:07.000
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            1
+            00:00:00.500,00:00:07.000
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            1
+            00:00:00.500,00:00:07.000
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            1
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            Caption #1
+            ''').strip().split('\n'))
+            )
+
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+            00:00:00.500,00:00:07.000
+            ''').strip().split('\n'))
+            )
+
+    def test_from_lines(self):
+        cue_block = sbv.SBVCueBlock.from_lines(textwrap.dedent('''
+                    00:00:00.500,00:00:07.000
+                    Caption #1 line 1
+                    Caption #1 line 2
+                    ''').strip().split('\n')
+                    )
+        self.assertEqual(
+            cue_block.start,
+            '00:00:00.500'
+            )
+        self.assertEqual(
+            cue_block.end,
+            '00:00:07.000'
+            )
+        self.assertEqual(
+            cue_block.payload,
+            ['Caption #1 line 1', 'Caption #1 line 2']
+            )
+
+    def test_from_lines_shorter_timestamps(self):
+        cue_block = sbv.SBVCueBlock.from_lines(textwrap.dedent('''
+                    0:1:2.500,0:1:03.800
+                    Caption #1 line 1
+                    Caption #1 line 2
+                    ''').strip().split('\n')
+                    )
+        self.assertEqual(
+            cue_block.start,
+            '0:1:2.500'
+            )
+        self.assertEqual(
+            cue_block.end,
+            '0:1:03.800'
+            )
+
+    def test_from_lines_hours_with_more_than_two_digits(self):
+        cue_block = sbv.SBVCueBlock.from_lines(textwrap.dedent('''
+                    100:00:00.000,100:00:05.000
+                    Caption #1
+                    ''').strip().split('\n')
+                    )
+        self.assertEqual(
+            cue_block.start,
+            '100:00:00.000'
+            )
+        self.assertEqual(
+            cue_block.end,
+            '100:00:05.000'
+            )
+
+    def test_is_valid_non_ascii_digits(self):
+        self.assertFalse(sbv.SBVCueBlock.is_valid(
+            ['0:00:0\u0661.500,0:00:07.000', 'Caption #1']
+            ))
+
+    def test_is_valid_requires_dot_before_milliseconds(self):
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+                    0:00:01x000,0:00:02.000
+                    Caption #1
+                    ''').strip().split('\n')
+                    ))
+        self.assertFalse(sbv.SBVCueBlock.is_valid(textwrap.dedent('''
+                    0:00:01.000,0:00:02x000
+                    Caption #1
+                    ''').strip().split('\n')
+                    ))
+
+
+class TestSBVModule(unittest.TestCase):
+
+    def test_parse_invalid_format(self):
+        self.assertRaises(
+            MalformedFileError,
+            sbv.parse,
+            textwrap.dedent('''
+                1
+                00:00:00.500,00:00:07.000
+                Caption text #1
+
+                00:00:07.000,00:00:11.890
+                Caption text #2
+                ''').strip().split('\n')
+                )
+
+    def test_parse_invalid_format_only_blank_lines(self):
+        for lines in ([], [''], ['', ' ', '']):
+            with self.subTest(lines=lines):
+                with self.assertRaises(MalformedFileError):
+                    sbv.parse(lines)
+
+    def test_parse_leading_blank_lines(self):
+        for blank_lines in ([''], ['', ''], [' ', '\t']):
+            with self.subTest(blank_lines=blank_lines):
+                captions = sbv.parse(
+                    blank_lines + ['0:00:01.000,0:00:02.000', 'Caption #1']
+                    )
+
+                self.assertEqual(
+                    [(c.start, c.text) for c in captions],
+                    [('00:00:01.000', 'Caption #1')]
+                    )
+
+    def test_parse_cue_without_text(self):
+        self.assertEqual(sbv.parse(['0:00:01.000,0:00:02.000']), [])
+
+    def test_parse_first_cue_without_text(self):
+        captions = sbv.parse(
+            textwrap.dedent('''
+            0:00:01.000,0:00:02.000
+
+            0:00:03.000,0:00:04.000
+            Caption #2
+            ''').strip().split('\n')
+            )
+
+        self.assertEqual(
+            [(c.start, c.text) for c in captions],
+            [('00:00:03.000', 'Caption #2')]
+            )
+
+    def test_parse_captions(self):
+        captions = sbv.parse(
+            textwrap.dedent('''
+            00:00:00.500,00:00:07.000
+            Caption #1
+
+            00:00:07.000,00:00:11.890
+            Caption #2 line 1
+            Caption #2 line 2
+            ''').strip().split('\n')
+            )
+        self.assertEqual(len(captions), 2)
+        self.assertIsInstance(captions[0], Caption)
+        self.assertIsInstance(captions[1], Caption)
+        self.assertEqual(
+            str(captions[0]),
+            '00:00:00.500 00:00:07.000 Caption #1'
+            )
+        self.assertEqual(
+            str(captions[1]),
+            r'00:00:07.000 00:00:11.890 Caption #2 line 1\n'
+            'Caption #2 line 2'
+            )
+
+    def test_parse_skips_cue_with_malformed_timings(self):
+        captions = sbv.parse(
+            textwrap.dedent('''
+            00:00:00.500,00:00:07.000
+            Caption #1
+
+            00:00:07x000,00:00:11.890
+            Caption #2
+
+            00:00:11.890,00:00:16.320
+            Caption #3
+            ''').strip().split('\n')
+            )
+        self.assertEqual(
+            [caption.text for caption in captions],
+            ['Caption #1', 'Caption #3']
+            )
+
+    def test_parse_ignores_text_attached_to_end_timestamp(self):
+        for timings in ('0:00:01.000,0:00:02.0005',
+                        '0:00:01.000,0:00:02.000xyz'):
+            captions = sbv.parse([timings, 'Caption #1'])
+            self.assertEqual(len(captions), 1)
+            self.assertEqual(captions[0].end, '00:00:02.000')
+
+    def test_parse_timings_over_range(self):
+        captions = sbv.parse(['0:59:61.000,0:61:00.500', 'Caption #1'])
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].start, '01:00:01.000')
+        self.assertEqual(captions[0].end, '01:01:00.500')
+
+    def test_parse_cue_with_too_many_digits(self):
+        captions = sbv.parse(
+            ['0:00:01.000,0:00:02.000', 'Caption #1', '',
+             '9' * 5000 + ':00:03.000,0:00:04.000', 'Caption #2']
+            )
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].text, 'Caption #1')
+
+    def test_parse_skips_cue_with_too_many_digits_hours(self):
+        captions = sbv.parse(
+            ['0:00:01.000,0:00:02.000', 'Caption #1', '',
+             '99999999999:00:03.000,99999999999:00:04.000', 'Caption #2']
+            )
+        self.assertEqual(len(captions), 1)
+        self.assertEqual(captions[0].text, 'Caption #1')
+
+
+class TestWriteSBV(unittest.TestCase):
+
+    def write(self, captions):
+        output = io.StringIO()
+        sbv.write(output, captions)
+        return output.getvalue()
+
+    def test_write(self):
+        self.assertEqual(
+            self.write([
+                Caption('00:00:00.500', '00:00:07.000', 'Line 1\nLine 2'),
+                Caption('01:02:03.004', '123:00:00.000', 'Caption #2')
+                ]),
+            textwrap.dedent('''\
+                0:00:00.500,0:00:07.000
+                Line 1
+                Line 2
+
+                1:02:03.004,123:00:00.000
+                Caption #2
+                ''')
+            )
+
+    def test_write_no_captions(self):
+        self.assertEqual(self.write([]), '')
+
+    def test_write_removes_cue_tags(self):
+        self.assertEqual(
+            self.write([Caption('00:00:00.500', '00:00:07.000',
+                                '<v Joe><b>Hi</b> &amp; bye</v>')]),
+            # character references are written as they are, as in SRT
+            '0:00:00.500,0:00:07.000\nHi &amp; bye\n'
+            )
+
+    def test_write_leaves_out_captions_without_text(self):
+        self.assertEqual(
+            self.write([
+                Caption('00:00:00.500', '00:00:01.000', ''),
+                Caption('00:00:01.000', '00:00:02.000', '<b></b>'),
+                Caption('00:00:02.000', '00:00:03.000', '\n \n'),
+                Caption('00:00:03.000', '00:00:04.000', 'Text'),
+                ]),
+            '0:00:03.000,0:00:04.000\nText\n'
+            )
+
+    def test_write_removes_blank_lines(self):
+        self.assertEqual(
+            self.write([Caption('00:00:00.500', '00:00:07.000',
+                                'Line 1\n\n \nLine 2')]),
+            '0:00:00.500,0:00:07.000\nLine 1\nLine 2\n'
+            )
+
+    def test_write_reads_back(self):
+        captions = [
+            Caption('00:00:00.500', '00:00:07.000', 'Line 1\nLine 2'),
+            Caption('100:00:07.000', '100:00:08.250', 'Caption #2')
+            ]
+        lines = self.write(captions).split('\n')
+
+        self.assertEqual(sbv.parse(lines), captions)

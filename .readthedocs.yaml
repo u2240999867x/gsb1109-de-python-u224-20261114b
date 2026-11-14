@@ -1,0 +1,16 @@
+version: "2"
+
+build:
+  os: "ubuntu-22.04"
+  tools:
+    # as in CI, for the version of Sphinx in docs/requirements.txt
+    python: "3.13"
+
+sphinx:
+  configuration: docs/source/conf.py
+
+python:
+   install:
+   - requirements: docs/requirements.txt
+   - method: pip
+     path: .

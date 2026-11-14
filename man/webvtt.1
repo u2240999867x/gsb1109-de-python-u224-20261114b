@@ -1,0 +1,555 @@
+.\" Man page generated from reStructuredText
+.\" by the Docutils 0.22.4 manpage writer.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "WEBVTT" "1" "Nov 08, 2026" "0.8.0" "webvtt-py"
+.SH NAME
+webvtt \- segment, shift, sync, validate and convert WebVTT, SRT and SBV captions
+.SH SYNOPSIS
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+webvtt segment PATH \-o OUTPUT [\-d NUMBER] [\-m NUMBER] [\-\-duration TIME]
+               [\-\-overwrite] [INPUT OPTIONS]
+webvtt shift PATH OFFSET [\-o OUTPUT] [\-s TIME] [\-\-drop\-before\-zero]
+             [INPUT OPTIONS]
+webvtt sync PATH (\-p FROM TO \-p FROM TO ... | \-\-fps FROM TO) [\-o OUTPUT]
+            [INPUT OPTIONS]
+webvtt validate PATH [INPUT OPTIONS]
+webvtt convert PATH [\-o OUTPUT] [\-t FORMAT] [\-\-keep\-formatting]
+               [INPUT OPTIONS]
+webvtt \-h
+webvtt \-\-version
+.EE
+.UNINDENT
+.UNINDENT
+.SH DESCRIPTION
+.sp
+\fBwebvtt\fP segments a caption file for HTTP Live Streaming \%<https://\:datatracker\:.ietf\:.org/\:doc/\:html/\:draft-pantos-hls-rfc8216bis> (HLS),
+shifts or synchronizes the timestamps of its captions, checks it for
+problems, or converts it to another format. The file can be WebVTT, SRT or
+SBV, read in the format of its extension: \fB\&.srt\fP for SRT, \fB\&.sbv\fP for SBV
+and any other for WebVTT, unless \fB\-\-format\fP is given.
+.sp
+\fBsegment\fP splits the captions in \fBPATH\fP into segments of a target
+duration. Each segment is written to \fBOUTPUT\fP as \fBfileSequenceN.webvtt\fP,
+where \fBN\fP is the segment index starting at 0, along with a playlist named
+\fBprog_index.m3u8\fP that lists all the segments. An \fBOUTPUT\fP with the
+playlist or segments of an earlier run is an error, unless \fB\-\-overwrite\fP is
+given.
+.sp
+A caption whose time span crosses a segment boundary is included in every
+segment it overlaps, so players display it regardless of which segment they
+load. Every segment also has the \fBSTYLE\fP and \fBREGION\fP blocks of \fBPATH\fP,
+which its captions use, and the captions keep their identifiers and cue
+settings. Comments are not written to the segments.
+.sp
+Every segment starts with an \fBX\-TIMESTAMP\-MAP\fP header that maps the local
+caption time \fB00:00:00.000\fP to an MPEG\-TS presentation timestamp, so the
+captions are kept in sync with the video stream.
+.sp
+\fBshift\fP moves the captions in \fBPATH\fP earlier or later by \fBOFFSET\fP
+seconds. The offset is rounded to the nearest millisecond as written, with
+halves rounded away from zero, so \fB1.0005\fP is 1001 milliseconds. A timestamp
+that would fall before zero is set to \fB00:00:00.000\fP, so a caption moved
+entirely before the start is kept with \fB00:00:00.000 \-\-> 00:00:00.000\fP
+timings, unless \fB\-\-drop\-before\-zero\fP is given to remove it. The shifted
+captions are written to standard output in UTF\-8, or to \fBOUTPUT\fP when given,
+in the format of the input, or of the extension of \fBOUTPUT\fP when it is
+\fB\&.vtt\fP, \fB\&.webvtt\fP, \fB\&.srt\fP or \fB\&.sbv\fP\&. The formatting of the cue text
+is kept when writing SRT.
+.sp
+\fBsync\fP fixes captions that drift further out of sync along the video. With
+\fB\-p\fP, each point moves the time \fBFROM\fP in the captions to \fBTO\fP; times
+between two points are moved along the line between them, and times before
+the first or after the last point along the line of the outermost points.
+With \fB\-\-fps\fP, the timing is changed from one frame rate to another. Times
+are rounded and set to zero like with \fBshift\fP, and the output is written
+the same way.
+.sp
+\fBvalidate\fP checks the captions in \fBPATH\fP and prints each problem on its
+own line, as \fBPATH: line N: error: MESSAGE\fP for a block skipped when
+reading the file, or \fBPATH: caption N: SEVERITY: MESSAGE\fP for a caption,
+numbered from 1. Captions out of order, not ending after they start or in a
+region that is not defined are errors, as they are not valid WebVTT.
+Captions that overlap an earlier one or have no text are warnings. When
+there is no other error, a WebVTT file is also read with strict parsing,
+which finds other problems such as cue settings that are not valid, and its
+first error is printed as \fBPATH: line N: error: MESSAGE\fP\&. Nothing is
+printed when there is no problem.
+.sp
+\fBconvert\fP writes the captions in \fBPATH\fP in the format given with \fB\-t\fP,
+or else in the format of the extension of \fBOUTPUT\fP, or else as WebVTT, to
+standard output in UTF\-8 or to \fBOUTPUT\fP\&. Reading SRT turns its \fBfont\fP
+colours into cue classes with a \fBSTYLE\fP block and its \fB{\eanN}\fP
+positions into cue settings, and writing SRT writes the positions back.
+.sp
+The commands can also be run as \fBpython \-m webvtt\fP, as in
+\fBpython \-m webvtt shift captions.vtt 2\fP\&.
+.sp
+The commands read the captions from standard input when \fBPATH\fP is \fB\-\fP,
+as WebVTT unless \fB\-\-format\fP is given and decoded as UTF\-8 unless
+\fB\-\-encoding\fP is given, so they can be used in pipes. A file named \fB\-\fP can
+be read as \fB\&./\-\fP\&.
+.SH COMMANDS
+.INDENT 0.0
+.TP
+.B \fBsegment\fP
+Segment the captions at \fBPATH\fP into WebVTT segments.
+.TP
+.B \fBshift\fP
+Shift the timestamps of the captions at \fBPATH\fP\&.
+.TP
+.B \fBsync\fP
+Synchronize the timestamps of the captions at \fBPATH\fP\&.
+.TP
+.B \fBvalidate\fP
+Check the captions at \fBPATH\fP for problems.
+.TP
+.B \fBconvert\fP
+Convert the captions at \fBPATH\fP to another format.
+.UNINDENT
+.SH OPTIONS
+.INDENT 0.0
+.TP
+.B \fB\-h\fP, \fB\-\-help\fP
+Show the help message and exit. Also available for each command, as in
+\fBwebvtt shift \-h\fP\&.
+.TP
+.B \fB\-\-version\fP
+Show the version of webvtt\-py and exit.
+.UNINDENT
+.SS Input options
+.sp
+These options are available for every command.
+.INDENT 0.0
+.TP
+.B \fB\-f FORMAT\fP, \fB\-\-format FORMAT\fP
+Format of the captions at \fBPATH\fP: \fBvtt\fP, \fBsrt\fP or \fBsbv\fP\&.
+Default: from the extension of \fBPATH\fP, \fB\&.srt\fP for \fBsrt\fP, \fB\&.sbv\fP
+for \fBsbv\fP and any other for \fBvtt\fP, or \fBvtt\fP for standard input.
+.TP
+.B \fB\-\-encoding ENCODING\fP
+Encoding of an input without a Byte Order Mark, such as \fBcp1252\fP\&. The
+Byte Order Mark is used when there is one. Writing SRT to a file keeps
+this encoding, while WebVTT and SBV are written in UTF\-8. Default:
+\fButf\-8\fP\&.
+.UNINDENT
+.SS Segment options
+.INDENT 0.0
+.TP
+.B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
+Directory where the segments and playlist are written. It is created if
+it does not exist. Required.
+.TP
+.B \fB\-d NUMBER\fP, \fB\-\-target\-duration NUMBER\fP
+Target duration of each segment in seconds, a whole number above zero.
+Also used for the \fB#EXT\-X\-TARGETDURATION\fP value of the playlist and the
+\fB#EXTINF\fP of its segments, except the last with \fB\-\-duration\fP\&.
+Default: \fB10\fP\&.
+.TP
+.B \fB\-m NUMBER\fP, \fB\-\-mpegts NUMBER\fP
+MPEG\-TS value written to the \fBX\-TIMESTAMP\-MAP\fP header of each segment,
+a whole number from 0 to 8589934591, as MPEG\-TS timestamps have 33
+bits. Default: \fB900000\fP (10 seconds at the 90 kHz MPEG\-TS clock).
+.TP
+.B \fB\-\-duration TIME\fP
+Length of the media, as a timestamp such as \fB01:25.500\fP or a number of
+seconds such as \fB85.5\fP\&. The playlist then covers all the media, with
+empty segments after the last caption, and the \fB#EXTINF\fP of its last
+segment ends with the media. A caption starting at or after it is an
+error. Without it, the playlist ends with the segment of the last
+caption, and every segment lasts the target duration.
+.TP
+.B \fB\-\-overwrite\fP
+Replace the playlist and segments of an earlier run in \fBOUTPUT\fP, and
+delete the segments of that run that the new playlist does not have.
+Other files in \fBOUTPUT\fP are left alone. Without it, an \fBOUTPUT\fP with
+a \fBprog_index.m3u8\fP or \fBfileSequenceN.webvtt\fP file is an error.
+.UNINDENT
+.SS Shift options
+.INDENT 0.0
+.TP
+.B \fBOFFSET\fP
+Number of seconds to shift the captions by, such as \fB2\fP or \fB0.25\fP\&.
+Negative values move the captions earlier, as in \fB\-1.5\fP\&. Required.
+.TP
+.B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
+File where the shifted captions are written, keeping the encoding and
+Byte Order Mark of the input file. It can be the input file itself to
+shift it in place. The captions are written in the format of its
+extension when it is \fB\&.vtt\fP, \fB\&.webvtt\fP, \fB\&.srt\fP or \fB\&.sbv\fP, and
+else in the format of the input, whose extension is added if it has no
+extension. If it is a directory, the file is written there with the
+input file name, which is an error when reading standard input.
+Default: standard output.
+.TP
+.B \fB\-s TIME\fP, \fB\-\-start TIME\fP
+Only shift the captions starting at or after \fBTIME\fP, a timestamp in
+\fB[hh:]mm:ss.mmm\fP format or a number of seconds, such as \fB47.5\fP\&.
+Default: shift all the captions.
+.TP
+.B \fB\-\-drop\-before\-zero\fP
+Remove the shifted captions that end at or before \fB00:00:00.000\fP, as
+they are never shown. A caption that starts before zero but ends after
+it is kept, starting at \fB00:00:00.000\fP\&. Without it, those captions are
+kept with \fB00:00:00.000 \-\-> 00:00:00.000\fP timings.
+.UNINDENT
+.SS Sync options
+.INDENT 0.0
+.TP
+.B \fB\-p FROM TO\fP, \fB\-\-point FROM TO\fP
+Move the time \fBFROM\fP in the captions to \fBTO\fP\&. Each time is a
+timestamp in \fB[hh:]mm:ss.mmm\fP format or a number of seconds. Give it
+two or more times, in any order. Two points cannot have the same
+\fBFROM\fP, and the \fBTO\fP times must be in the same order as the
+\fBFROM\fP times.
+.TP
+.B \fB\-\-fps FROM TO\fP
+Change the timing from the frame rate \fBFROM\fP the captions are timed
+for to the frame rate \fBTO\fP of the video, such as \fB25 23.976\fP\&. A frame
+rate can also be a ratio, such as \fB24000/1001\fP for the exact NTSC
+rate. Times are multiplied by \fBFROM / TO\fP\&. Cannot be used with
+\fB\-p\fP\&.
+.TP
+.B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
+File where the synchronized captions are written, as with \fBshift\fP\&.
+Default: standard output.
+.UNINDENT
+.SS Convert options
+.INDENT 0.0
+.TP
+.B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
+File where the converted captions are written, as with \fBshift\fP, with
+the extension of the output format added if it has no extension.
+Default: standard output.
+.TP
+.B \fB\-t FORMAT\fP, \fB\-\-to FORMAT\fP
+Format of the output: \fBvtt\fP, \fBsrt\fP or \fBsbv\fP\&. Default: the format
+of the extension of \fBOUTPUT\fP, or \fBvtt\fP\&.
+.TP
+.B \fB\-\-keep\-formatting\fP
+When writing SRT, keep bold, italic and underline, and write the colours
+of the cue classes in the styles as \fBfont\fP tags, instead of removing
+the cue tags. SBV has no formatting.
+.UNINDENT
+.SH EXIT STATUS
+.INDENT 0.0
+.TP
+.B \fB0\fP
+The command completed successfully. For \fBvalidate\fP, the file has no
+errors, though it can have warnings.
+.TP
+.B \fB1\fP
+The input could not be read or is not valid in its format, the captions
+could not be moved as asked, or the output could not be written. For
+\fBsegment\fP, it is also an error when the output directory has the files
+of an earlier run without \fB\-\-overwrite\fP, or when a caption starts at or
+after \fB\-\-duration\fP\&. An error message is printed to standard error, for
+example:
+.INDENT 7.0
+.INDENT 3.5
+.sp
+.EX
+webvtt: error: captions.vtt: not a valid WebVTT file
+.EE
+.UNINDENT
+.UNINDENT
+.UNINDENT
+.sp
+For \fBvalidate\fP, \fB1\fP is also the status when the file has errors, which
+are printed to standard output.
+.INDENT 0.0
+.TP
+.B \fB2\fP
+Invalid command line arguments, such as an offset that is not a number,
+an invalid \fB\-\-start\fP time, sync points that cannot be used, or an
+unknown format or encoding.
+.UNINDENT
+.SH EXAMPLES
+.sp
+Given \fBcaptions.vtt\fP:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+WEBVTT
+
+00:00:01.000 \-\-> 00:00:04.000
+Hello and welcome.
+
+00:00:06.000 \-\-> 00:00:12.000
+This caption spans two segments.
+
+00:00:14.500 \-\-> 00:00:18.000
+Thanks for watching!
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Segment it into 10\-second segments:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt segment captions.vtt \-\-output out
+$ ls out
+fileSequence0.webvtt  fileSequence1.webvtt  prog_index.m3u8
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+\fBout/prog_index.m3u8\fP:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+#EXTM3U
+#EXT\-X\-TARGETDURATION:10
+#EXT\-X\-VERSION:3
+#EXT\-X\-PLAYLIST\-TYPE:VOD
+#EXTINF:10.00000,
+fileSequence0.webvtt
+#EXTINF:10.00000,
+fileSequence1.webvtt
+#EXT\-X\-ENDLIST
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+\fBout/fileSequence0.webvtt\fP:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+WEBVTT
+X\-TIMESTAMP\-MAP=MPEGTS:900000,LOCAL:00:00:00.000
+
+00:00:01.000 \-\-> 00:00:04.000
+Hello and welcome.
+
+00:00:06.000 \-\-> 00:00:12.000
+This caption spans two segments.
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+\fBout/fileSequence1.webvtt\fP:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+WEBVTT
+X\-TIMESTAMP\-MAP=MPEGTS:900000,LOCAL:00:00:00.000
+
+00:00:06.000 \-\-> 00:00:12.000
+This caption spans two segments.
+
+00:00:14.500 \-\-> 00:00:18.000
+Thanks for watching!
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Segment it again into \fBout\fP, with 6\-second segments and a different
+MPEG\-TS value, replacing the earlier segments:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt segment captions.vtt \-o out
+webvtt: error: out: has the files of an earlier segmentation, such as fileSequence0.webvtt; use \-\-overwrite to replace them
+$ webvtt segment captions.vtt \-o out \-d 6 \-m 0 \-\-overwrite
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Show the captions 1.5 seconds earlier:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt shift captions.vtt \-1.5
+WEBVTT
+
+00:00:00.000 \-\-> 00:00:02.500
+Hello and welcome.
+
+00:00:04.500 \-\-> 00:00:10.500
+This caption spans two segments.
+
+00:00:13.000 \-\-> 00:00:16.500
+Thanks for watching!
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Cut the first 5 seconds of the video, removing the first caption, which
+would end before the start:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt shift captions.vtt \-5 \-\-drop\-before\-zero
+WEBVTT
+
+00:00:01.000 \-\-> 00:00:07.000
+This caption spans two segments.
+
+00:00:09.500 \-\-> 00:00:13.000
+Thanks for watching!
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Show the last caption 2 seconds later, updating the file in place:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt shift captions.vtt 2 \-\-start 00:14.500 \-o captions.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Keep the first caption in place and move the last one from 00:14.500 to
+00:15.850, synchronizing the captions in between:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt sync captions.vtt \-p 00:01.000 00:01.000 \-p 00:14.500 00:15.850
+WEBVTT
+
+00:00:01.000 \-\-> 00:00:04.300
+Hello and welcome.
+
+00:00:06.500 \-\-> 00:00:13.100
+This caption spans two segments.
+
+00:00:15.850 \-\-> 00:00:19.700
+Thanks for watching!
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Fix captions timed for a 25 fps video played with a 23.976 fps one,
+updating the file in place:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt sync captions.vtt \-\-fps 25 23.976 \-o captions.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Shift and synchronize the captions in a pipe, reading them from standard
+input:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt shift captions.vtt 2 | webvtt sync \- \-\-fps 25 23.976 > fixed.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Synchronize the captions and segment them, without a file in between:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt sync captions.vtt \-\-fps 25 23.976 | webvtt segment \- \-o out
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Check \fBcaptions.vtt\fP, which has no problems, so nothing is printed:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt validate captions.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Check \fBedited.vtt\fP, where the captions are out of order, the last one is
+in a region that is not defined and overlaps the first one, and a block is
+not a cue:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt validate edited.vtt
+edited.vtt: line 12: error: Invalid block [\(aqNOTEBOOK\(aq]
+edited.vtt: caption 2: error: starts at 00:00:01.000, before caption 1, which starts at 00:00:06.000
+edited.vtt: caption 3: error: is in the region \(aqbottom\(aq, which is not defined
+edited.vtt: caption 3: warning: starts at 00:00:11.000, before caption 1 ends at 00:00:12.000
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Shift SRT captions, keeping them in SRT, and convert them to WebVTT:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt shift captions.srt 2 \-o captions.srt
+$ webvtt convert captions.srt \-o captions.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+Convert WebVTT to SRT, keeping the formatting, and read an SRT file in
+Windows\-1252 from standard input:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt convert captions.vtt \-o captions.srt \-\-keep\-formatting
+$ cat old.srt | webvtt convert \- \-f srt \-\-encoding cp1252 > new.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.SH SEE ALSO
+.sp
+The same segmentation, shifting, synchronizing, validation and conversion
+are available from Python with \fBwebvtt.segment()\fP, \fBWebVTT.shift()\fP,
+\fBWebVTT.sync()\fP, \fBWebVTT.change_framerate()\fP, \fBWebVTT.validate()\fP,
+\fBwebvtt.from_srt()\fP, \fBwebvtt.from_sbv()\fP, \fBWebVTT.save_as_srt()\fP and
+\fBWebVTT.save_as_sbv()\fP, and \fBWebVTT.sort()\fP puts the captions in order
+of start time.
+.SH Author
+Alejandro Mendez
+.SH Copyright
+2016-2026, Alejandro Mendez
+.\" End of generated man page.
