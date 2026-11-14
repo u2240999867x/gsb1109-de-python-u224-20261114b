@@ -19,5 +19,6 @@ See [the repository README](https://github.com/workalendar/workalendar#available
 * Advanced features:
   * [Class options](class-options.md)
   * [ISO Registry](iso-registry.md)
+  * [Sampling plans](sampling.md)
   * [iCal Export](ical.md)
 * [How to contribute](contributing.md)

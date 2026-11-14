@@ -2,6 +2,9 @@
 
 ## master (unreleased)
 
+- Added inspectable fifth-Monday sampling plans with explicit missing-baseline,
+  month-rollover, and fully-excluded-window outcomes, plus stable task identity
+  across monthly and quarterly queries.
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
 
 ## v17.0.0 (2023-01-01)
