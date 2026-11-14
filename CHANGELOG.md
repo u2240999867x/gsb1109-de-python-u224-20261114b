@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `pystac.license_provenance` with `collect_license_statements` for exporting evidence-backed license statements (collection `license`, `license` links, and per-asset usage fields) scoped by caller-declared asset roles, preserving multiple, unknown, and contradictory statements with their sources for human review
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed

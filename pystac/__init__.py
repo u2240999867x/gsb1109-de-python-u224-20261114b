@@ -35,6 +35,12 @@ __all__ = [
     "ItemCollection",
     "Provider",
     "ProviderRole",
+    "SourceKind",
+    "StatementSource",
+    "LicenseStatement",
+    "LicenseConflict",
+    "LicenseReport",
+    "collect_license_statements",
     "read_file",
     "read_dict",
     "write_file",
@@ -82,6 +88,14 @@ from pystac.asset import Asset
 from pystac.item import Item
 from pystac.item_collection import ItemCollection
 from pystac.provider import ProviderRole, Provider
+from pystac.license_provenance import (
+    SourceKind,
+    StatementSource,
+    LicenseStatement,
+    LicenseConflict,
+    LicenseReport,
+    collect_license_statements,
+)
 from pystac.utils import HREF
 import pystac.validation
 
