@@ -292,3 +292,77 @@ And encode the data.
     >>> encoded_raw, encoded = iso8583.encode(decoded, spec)
     >>> encoded_raw
     bytearray(b'02004000000000000000\x15\x12\x12\x00\x00\x00\x02\x12\x10')
+
+Choose a Specification for Imported Data
+----------------------------------------
+When a header or field layout changes, old and new messages can coexist for
+a while.  Import both candidate specifications together instead of picking one
+by list position.  :func:`iso8583.decode_candidates` checks every candidate,
+records its filter trail, and selects only when exactly one candidate is
+eligible.
+
+.. code-block:: python
+
+    >>> import copy
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii as spec
+    >>> legacy = copy.deepcopy(spec)
+    >>> modern = copy.deepcopy(legacy)
+    >>> modern['22']['data_enc'] = 'b'
+    >>> encoded_raw = b'02002000040000000000123456051'
+    >>> report = iso8583.decode_candidates(
+    ...     encoded_raw,
+    ...     {'legacy': legacy, 'modern': modern})
+    >>> report.outcome
+    'ambiguous'
+    >>> sorted(report.common_fields)
+    ['3', 'p', 't']
+    >>> [(d.field, d.kind) for d in report.divergences]
+    [('22', 'meaning')]
+
+Both candidates consume the entire message, so neither wins.  The common
+fields are reported, and field ``22`` is reported as a meaning divergence
+with each candidate's value.  Swapping the dictionary order produces the same
+report.
+
+A candidate is eligible only when its header and bitmap checks pass, required
+fields are present, forbidden fields are absent, validators succeed, and the
+message is consumed completely.  A candidate that decodes fields but leaves
+trailing bytes is reported as ``trailing`` and never wins.
+
+.. code-block:: python
+
+    >>> from iso8583.specs import default_ascii
+    >>> llvar = copy.deepcopy(default_ascii)
+    >>> _ = llvar['2'].pop('left_pad', None)
+    >>> _ = llvar['2'].pop('right_pad', None)
+    >>> llvar['2'].update(
+    ...     data_enc='ascii', len_enc='ascii', len_type=2,
+    ...     max_len=19, len_count='bytes')
+    >>> fixed = copy.deepcopy(llvar)
+    >>> fixed['2']['len_type'] = 0
+    >>> fixed['2']['max_len'] = 10
+    >>> report = iso8583.decode_candidates(
+    ...     b'02004000000000000000101234567890',
+    ...     {'llvar': llvar, 'fixed': fixed})
+    >>> report.selected_name
+    'llvar'
+    >>> [(c.name, c.status) for c in report.candidates]
+    [('fixed', 'trailing'), ('llvar', 'selected')]
+
+Per-candidate header rules, allowed field ranges, required fields, and field
+validators can be supplied with :class:`iso8583.candidates.CandidateSpec`.
+Use ``priority`` only for a deliberate semantic preference; equal priorities
+leave the result ambiguous rather than falling back to input order.
+
+.. code-block:: python
+
+    >>> from iso8583.candidates import CandidateSpec
+    >>> report = iso8583.decode_candidates(
+    ...     encoded_raw,
+    ...     {
+    ...         'legacy': CandidateSpec('legacy', legacy, priority=1),
+    ...         'modern': CandidateSpec('modern', modern),
+    ...     })
+    >>> report.selected_name
+    'legacy'

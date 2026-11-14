@@ -81,6 +81,37 @@ It returns a raw ISO8583 message and a dictionary with encoded data.
      'p': {'len': b'', 'data': b'0000000002000000'},
      '39': {'len': b'', 'data': b'05'}}
 
+Candidate Specifications
+------------------------
+
+When more than one specification can describe the same message, use
+`iso8583.decode_candidates <https://pyiso8583.readthedocs.io/en/latest/functions.html#iso8583.decode_candidates>`_
+to evaluate them all.  Each candidate reports whether its header, bitmap
+range, field validation, and whole-message consumption checks pass.  A
+candidate that leaves trailing bytes never wins, and swapping the candidate
+order does not change the result.
+
+.. code-block:: python
+
+    >>> import copy
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii as spec
+    >>> llvar = copy.deepcopy(spec)
+    >>> fixed = copy.deepcopy(llvar)
+    >>> fixed['2']['len_type'] = 0
+    >>> fixed['2']['max_len'] = 10
+    >>> report = iso8583.decode_candidates(
+    ...     b'02004000000000000000101234567890',
+    ...     {'llvar': llvar, 'fixed': fixed})
+    >>> report.selected_name
+    'llvar'
+    >>> [(c.name, c.status) for c in report.candidates]
+    [('fixed', 'trailing'), ('llvar', 'selected')]
+
+When two candidates both consume the message, ``report.ambiguous`` is
+``True``, ``report.common_fields`` contains fields that are provably the
+same, and ``report.divergences`` describes each disagreement.
+
 Pretty Print Messages
 ---------------------
 

@@ -1,3 +1,12 @@
+Unreleased
+----------
+- Add :func:`iso8583.decode_candidates` for decoding one message against
+  several candidate specifications.  Each candidate reports its header,
+  bitmap range, field validation, and whole-message consumption checks.
+  Candidates that leave trailing bytes cannot be selected.  When several
+  candidates are complete, the result does not depend on candidate order;
+  common fields and field-level divergences are reported instead.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.
