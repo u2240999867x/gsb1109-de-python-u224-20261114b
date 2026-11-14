@@ -1,6 +1,11 @@
 History
 =======
 
+Unreleased
+----------
+
+* Added ``webvtt.derived`` with ``DerivedData``, which builds a full-text search index, word-level timings and chapter summaries from the captions and updates them incrementally after an edit, distinguishing changes of the body text, inline timestamp tags, speakers, comments and outer times. Cues without an identifier and with repeated text are followed by their neighbours, and a cue that cannot be followed uniquely is reported with the range to rebuild
+
 0.8.0 (08-11-2026)
 ------------------
 

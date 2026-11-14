@@ -20,6 +20,12 @@ webvtt.segmenter
 .. automodule:: webvtt.segmenter
     :members:
 
+webvtt.derived
+--------------
+
+.. automodule:: webvtt.derived
+    :members:
+
 webvtt.cli
 ----------
 
