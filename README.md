@@ -136,6 +136,7 @@ tag.duration: float | None       # audio duration in seconds
 tag.is_lossless: bool | None     # is audio lossless? (added in tinytag 2.3.0)
 tag.mime_type: str | None        # audio MIME type (added in tinytag 2.3.0) 
 tag.samplerate: int | None       # audio samples per second
+tag.edit_list: EditList | None   # MP4 edit list
 ```
 
 > [!WARNING]  
@@ -307,6 +308,72 @@ Output:
 > main artist
 > ['another artist', 'yet another artist']
 ```
+
+### MP4 Edit Lists
+
+MP4 files can carry an edit list (`elst`) that turns source media into a
+program: it may start with silence, skip material, replay an earlier section,
+or change the playback rate. When present, the expanded list is available on
+the tag object:
+
+```python
+from tinytag import TinyTag
+
+tag: TinyTag = TinyTag.get('/some/exhibit.mp4')
+edit_list = tag.edit_list          # None if the file has no edit list
+for record in edit_list or ():
+    print(record.index, record.presentation_range, record.media_range)
+```
+
+`tag.edit_list_table` returns the same records as a list of flat
+dictionaries, which is convenient for JSON or tabular output.
+
+`presentation_*` fields are on the movie timeline (seconds), while
+`media_*` fields are on the source track timeline (seconds). The raw
+`segment_duration` stays in movie timescale ticks (`mvhd`), and `media_time`
+stays in track timescale ticks (`mdhd`). Both `*_ticks` variants are also
+provided on every record.
+
+Empty edits (`media_time == -1`, i.e. inserted silence) are kept. A record
+has `empty` / `silent`, and its `media_range` / `sample_range` are `None`:
+
+```python
+opening = edit_list.presentation_at(0.5)
+assert opening and opening[0].empty
+assert edit_list.silence_at(0.5)
+assert edit_list.media_position(0.5) is None
+```
+
+Lookups work in both directions. `records_for_media(start, end)` returns
+every edit that plays a source-media range, so a range replayed twice yields
+two records:
+
+```python
+records = edit_list.records_for_media(4.0, 13.5)
+assert len(records) == 2
+assert edit_list.presentations_for_media(4.0, 13.5) == [
+    (2.0, 18.0), (18.0, 27.5)
+]
+```
+
+Every track keeps its own timescale. `edit_list.tracks` contains the video,
+audio, and other tracks that have an edit list; `edit_list.records` is the
+primary (usually audio) track. Each edit record reports `media_rate`,
+`rate_supported`, `supported`, `unexplained`, and a `reason` string when the
+entry cannot be interpreted safely. Normal playback (`1.0`) and a dwell
+(`0.0`) are supported; other rates are preserved but marked unsupported
+instead of being silently normalised. `SUPPORTED_MEDIA_RATES` lists the
+supported values, and each record exposes the same tuple as
+`supported_rates`.
+
+The table has one row per expanded edit, retaining empty edits, the movie
+and track timescales, presentation and media ranges in seconds and ticks,
+the inclusive media sample range, the playback rate, and the support
+verdict. `edit_list.validate()` returns warnings, and
+`edit_list.duration`, `media_duration`, and `silent_duration` summarise the
+presentation timeline. `expand_edit_list()` and `edit_list_table()` accept a
+path, a file-like object, MP4 bytes, or a raw `elst` atom. `EditList` also
+offers `from_bytes()` / `from_file()` class methods.
 
 ### All Metadata
 

@@ -36,6 +36,8 @@ from io import BytesIO
 from os import PathLike, SEEK_CUR, SEEK_END, environ, fsdecode
 from struct import unpack, unpack_from
 
+from .editlist import EditList, read_edit_list
+
 TYPE_CHECKING = False
 
 # Lazy imports for type checking
@@ -355,6 +357,32 @@ class TinyTag:
     def _unpad_bytes(s: bytes) -> bytes:
         return s.rstrip(b'\x00')
 
+    _edit_list: EditList | None = None
+
+    @property
+    def edit_list(self) -> EditList | None:
+        """MP4 edit list, or ``None`` if the file has none."""
+        return self._edit_list
+
+    def get_edit_list(self) -> EditList | None:
+        """Return the MP4 edit list, if any."""
+        return self._edit_list
+
+    @property
+    def edit_list_table(self) -> list[dict[str, object]]:
+        """MP4 edit list as a list of flat records."""
+        return self._edit_list.table if self._edit_list is not None else []
+
+    @property
+    def mp4_edit_list(self) -> EditList | None:
+        """Alias for :attr:`edit_list`."""
+        return self._edit_list
+
+    @property
+    def edits(self) -> EditList | None:
+        """Alias for :attr:`edit_list`."""
+        return self._edit_list
+
     def get_image(self) -> bytes | None:
         """Deprecated, use 'images.any' instead."""
         from warnings import warn  # pylint: disable=import-outside-toplevel
@@ -550,6 +578,7 @@ class _MP4(TinyTag):
         elif self._parse_tags:
             tree = self._build_meta_data_tree()
         self._traverse_atoms(fh, path=tree)
+        self._edit_list = read_edit_list(fh)
         self._duration_parsed = self._parse_duration
         self._tags_parsed = self._parse_tags
 
