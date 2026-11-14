@@ -38,6 +38,23 @@ serialization-related functions are available:
 .. autofunction:: serialize_identifier
 
 
+Captured stylesheet references
+------------------------------
+
+These helpers work from a local manifest of captured HTTP responses (a HAR
+document or a list of response dictionaries). They resolve the relative
+``@import`` and ``url()`` references found in captured stylesheets, following
+the redirects recorded in the manifest. Identical stylesheet bodies are parsed
+only once and re-resolved against each response URL.
+
+.. module:: tinycss2
+.. autofunction:: load_manifest
+.. autofunction:: extract_references
+.. autofunction:: resolve_manifest_url
+.. autoclass:: ResourceReference
+   :members:
+
+
 Color Level 3
 -------------
 

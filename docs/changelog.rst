@@ -2,6 +2,16 @@ Changelog
 =========
 
 
+Unreleased
+----------
+
+* Add :func:`~tinycss2.extract_references` and related helpers to resolve
+  ``@import`` and ``url()`` references from a manifest of locally captured
+  CSS responses, parsing each distinct stylesheet body only once while
+  preserving the original spelling, import conditions, final response URLs
+  and import cycles
+
+
 Version 1.5.1
 -------------
 
