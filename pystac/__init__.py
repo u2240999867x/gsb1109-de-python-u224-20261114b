@@ -27,6 +27,11 @@ __all__ = [
     "Extent",
     "SpatialExtent",
     "TemporalExtent",
+    "CoverageCheckResult",
+    "BboxOverlap",
+    "AxisViolation",
+    "check_spatial_coverage",
+    "check_bbox_coverage",
     "Summaries",
     "CommonMetadata",
     "RangeSummary",
@@ -75,6 +80,13 @@ from pystac.collection import (
     Extent,
     SpatialExtent,
     TemporalExtent,
+)
+from pystac.spatial_coverage import (
+    AxisViolation,
+    BboxOverlap,
+    CoverageCheckResult,
+    check_bbox_coverage,
+    check_spatial_coverage,
 )
 from pystac.common_metadata import CommonMetadata
 from pystac.summaries import RangeSummary, Summaries

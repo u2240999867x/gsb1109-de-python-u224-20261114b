@@ -62,6 +62,9 @@ These are representations of :stac-spec:`Collections
   :stac-spec:`CollectionSummaries <collection-spec/collection-spec.md#summaries>`
 * :class:`pystac.ItemCollection`: Represents a GeoJSON FeatureCollection in which all
   Features are STAC Items.
+* :func:`pystac.check_spatial_coverage`: Checks detailed piece bboxes against the
+  first overall bbox, reporting out-of-bounds pieces, antimeridian crossings and
+  redundant height axes, with a small sample for database ingestion.
 
 Catalogs
 --------

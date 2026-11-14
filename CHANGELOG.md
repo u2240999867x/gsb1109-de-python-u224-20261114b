@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `pystac.check_spatial_coverage`, `pystac.check_bbox_coverage` and
+  `SpatialExtent.check_coverage` for checking detailed piece bboxes against the first
+  overall bbox. Results report pieces that exceed the overall bounds, pieces that
+  cross the antimeridian (including pairs that connect across the +/-180 seam) and
+  redundant height axes, and include a small JSON-serializable sample suitable for
+  database ingestion.
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed

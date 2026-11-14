@@ -28,6 +28,12 @@ from pystac.serialization import (
     identify_stac_object_type,
     migrate_to_latest,
 )
+from pystac.spatial_coverage import (
+    DEFAULT_SAMPLE_SIZE,
+    DEFAULT_SEAM_TOLERANCE,
+    CoverageCheckResult,
+    check_spatial_coverage,
+)
 from pystac.summaries import Summaries
 from pystac.utils import (
     datetime_to_str,
@@ -116,6 +122,40 @@ class SpatialExtent:
         """
         return SpatialExtent(
             bboxes=d["bbox"], extra_fields={k: v for k, v in d.items() if k != "bbox"}
+        )
+
+    def check_coverage(
+        self,
+        *,
+        seam_tolerance: float = DEFAULT_SEAM_TOLERANCE,
+        sample_size: int = DEFAULT_SAMPLE_SIZE,
+    ) -> CoverageCheckResult:
+        """Check the detailed bboxes against the first overall bbox.
+
+        The first bbox is treated as the overall outer bbox and every later
+        bbox as a detailed piece. Pieces extending past the overall bbox,
+        pieces crossing the antimeridian and pieces carrying a redundant
+        height axis are reported. Empty space inside the overall bbox is not
+        treated as observed data. See
+        :func:`pystac.spatial_coverage.check_spatial_coverage` for details.
+
+        Args:
+            seam_tolerance : Tolerance for bound and antimeridian comparisons.
+            sample_size : Maximum number of per-piece results retained in the
+                returned sample.
+
+        Returns:
+            CoverageCheckResult: Aggregate counts, per-piece results and a
+            small sample suitable for database ingestion.
+        """
+        if not self.bboxes:
+            raise ValueError("Cannot check coverage of a SpatialExtent with no bboxes")
+        overall_bbox, *piece_bboxes = self.bboxes
+        return check_spatial_coverage(
+            overall_bbox,
+            piece_bboxes,
+            seam_tolerance=seam_tolerance,
+            sample_size=sample_size,
         )
 
     @staticmethod
