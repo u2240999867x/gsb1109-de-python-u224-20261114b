@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Add `pdfplumber.seam` for stitching table rows extracted from separate pages into one manifest. It drops repeated headers, counts reprinted last lines only once, joins split long descriptions back together, reports ambiguous keyless fragments instead of guessing, and keeps the original `(page_index, row_index)` provenance of every row. Collector-confirmed seams can be applied via `StitchResult.apply_confirmation`, changing only that seam's totals and provenance. See [docs/seams.md](docs/seams.md).
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed
