@@ -1,0 +1,19 @@
+/* 设备说明书样式资源示例 */
+@media screen and (min-width: 300px) {
+  .manual { font-size: 14px; }
+  @media (max-width: 500px) {
+    .manual { font-size: 12px; }
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .manual { background: #111; }
+}
+@media (hover: hover) and (min-width: 2000px) {
+  .manual-wide { columns: 2; }
+}
+@media (400px < width <= 800px), (min-width: 3000px) {
+  .manual-mid { margin: 1em; }
+}
+@media print and (min-width: 100px) {
+  .print-only { display: block; }
+}
