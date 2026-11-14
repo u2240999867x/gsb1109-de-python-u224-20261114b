@@ -292,3 +292,36 @@ And encode the data.
     >>> encoded_raw, encoded = iso8583.encode(decoded, spec)
     >>> encoded_raw
     bytearray(b'02004000000000000000\x15\x12\x12\x00\x00\x00\x02\x12\x10')
+
+Reconcile Reversals with Their Originals
+----------------------------------------
+A terminal may restart its System Trace Audit Number (DE 11) each business
+day, so a trace number alone can point at yesterday's transaction.
+
+:class:`iso8583.reconciliation.ReconciliationLedger` matches reversals using
+DE 90 (Original Data Elements), the acquiring institution (DE 32),
+terminal (DE 41), and local date. A complete DE 90 selects the original
+exactly. A dated trace reference is only accepted on the original's business
+date; an incomplete reference may fall back to amount plus a time window and
+stays ambiguous when more than one original fits.
+
+.. code-block:: python
+
+    >>> from datetime import date
+    >>> from iso8583.reconciliation import ReconciliationLedger
+    >>> ledger = ReconciliationLedger(date_hint=date(2026, 11, 14))
+    >>> original = {
+    ...     't': '0200', '11': '123456', '32': 'ACQ0001',
+    ...     '41': 'TERM0001', '13': '1113', '12': '235900',
+    ...     '4': '000000010000'}
+    >>> reversal = {
+    ...     't': '0400', '11': '000001', '32': 'ACQ0001',
+    ...     '41': 'TERM0001', '13': '1114', '12': '000500',
+    ...     '4': '000000010000',
+    ...     '90': '02001234561113235900ACQ0001       ' + ' ' * 11}
+    >>> ledger.ingest(reversal).status.value
+    'reversal_pending'
+    >>> ledger.ingest(original).status.value
+    'original'
+    >>> ledger.balance
+    Decimal('0')

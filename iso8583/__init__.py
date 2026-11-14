@@ -69,9 +69,19 @@ __all__ = [
     "DecodeError",
     "encode",
     "EncodeError",
+    "ReconciliationLedger",
+    "ReconciliationError",
+    "parse_original_data_elements",
+    "reconcile",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
 from iso8583.decoder import DecodeError, decode
 from iso8583.encoder import EncodeError, encode
+from iso8583.reconciliation import (
+    ReconciliationError,
+    ReconciliationLedger,
+    parse_original_data_elements,
+    reconcile,
+)
 from iso8583.tools import pp
