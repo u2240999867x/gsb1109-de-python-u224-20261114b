@@ -1,6 +1,11 @@
 History
 =======
 
+Unreleased
+----------
+
+* Added ``index_captions`` and the ``CorpusIndex``, ``CueRef``, ``CueSpan`` and ``RubyAnnotation`` classes in ``webvtt.corpus``, to index captions as a corpus. The original words and the readings of ``<ruby>`` annotations are indexed separately, each reading links back to the range of the original characters it annotates, and voice and language tags are indexed. Every entry keeps its offsets and the cue it comes from, so a hit traces back to the original cue, including when the tags span several lines or the text uses character references. A reading over several characters is kept as one annotation when the markup does not split it per character
+
 0.8.0 (08-11-2026)
 ------------------
 

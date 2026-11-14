@@ -4,13 +4,17 @@ __version__ = '0.8.0'
 
 from .webvtt import WebVTT
 from . import segmenter
+from .corpus import (  # noqa
+    CorpusIndex, CueRef, CueSpan, RubyAnnotation, index_captions
+    )
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
 
 __all__ = [
-    'WebVTT', 'Caption', 'CueSettings', 'ParseIssue', 'Region', 'Style',
-    'ValidationIssue'
+    'WebVTT', 'Caption', 'CorpusIndex', 'CueRef', 'CueSpan',
+    'CueSettings', 'ParseIssue', 'Region', 'RubyAnnotation', 'Style',
+    'ValidationIssue', 'index_captions'
     ]
 
 read = WebVTT.read

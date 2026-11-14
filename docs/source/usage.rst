@@ -134,6 +134,114 @@ Use ``format`` to read a string in SRT or SBV format:
     """, format='sbv')
 
 
+Indexing a corpus with ruby annotations
+---------------------------------------
+
+Captions in languages such as Japanese pair the original words with their
+reading in ruby annotations, written as ``<ruby>`` tags, and can carry voice
+(``<v>``) and language (``<lang>``) tags. `index_captions` builds a
+`CorpusIndex` that keeps the original words and the readings in separate
+indexes, links every reading back to the range of the original characters it
+annotates, and records the cue each entry comes from:
+
+.. code-block:: python
+
+    import webvtt
+    from webvtt import index_captions
+
+    vtt = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:01.000 --> 00:00:03.000
+    <v 田中><lang ja><ruby>東京<rt>とうきょう</rt></ruby>は</lang></v>
+
+    00:00:04.000 --> 00:00:05.000
+    <ruby>図書館<rt>としょかん</rt></ruby>へ行く
+    """)
+
+    index = index_captions(vtt.captions)
+
+    # the original terms and the readings are indexed separately
+    sorted(index.terms)      # ['は', 'へ行く', '図書館', '東京']
+    sorted(index.readings)   # ['とうきょう', 'としょかん']
+
+A `RubyAnnotation` pairs a reading with its base. Its ranges are offsets in
+the decoded text of the cue, available as `CueRef.text`, and the raw ranges
+are offsets in ``Caption.raw_text`` including the tags. Every entry knows its
+cue, so a hit traces back to the original cue:
+
+.. code-block:: python
+
+    ruby = index.rubies[0]
+    ruby.base               # '東京'
+    ruby.reading            # 'とうきょう'
+
+    cue = index.cue_for(ruby)
+    cue.start               # '00:00:01.000'
+    cue.text[ruby.base_range[0]:ruby.base_range[1]]        # '東京'
+    cue.text[ruby.reading_range[0]:ruby.reading_range[1]]  # 'とうきょう'
+
+    # the raw ranges locate the same text in the cue as written
+    cue.caption.raw_text[
+        ruby.base_raw_range[0]:ruby.base_raw_range[1]
+        ]                   # '東京'
+
+    # a reading hit is found and traced back the same way
+    reading_span = index.find_readings('としょかん')[0]
+    index.cue_for(reading_span).start  # '00:00:04.000'
+
+The voice and language tags are indexed too, across the lines a tag spans:
+
+.. code-block:: python
+
+    index.find_speaker('田中')[0].text  # '東京とうきょうは'
+    index.language_spans[0].lang        # 'ja'
+
+A reading is only split over the characters of a word when the markup gives
+an annotation for each of them. A single reading over several characters is
+kept as one annotation over the whole range, as the markup gives no evidence
+for splitting it:
+
+.. code-block:: python
+
+    grouped = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:01.000 --> 00:00:02.000
+    <ruby>図書館<rt>としょかん</rt></ruby>
+    """)
+    grouped_ruby = index_captions(grouped.captions).rubies[0]
+    grouped_ruby.base       # '図書館'
+    grouped_ruby.reading    # 'としょかん'
+
+    per_character = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:01.000 --> 00:00:02.000
+    <ruby>日<rt>ひ</rt></ruby><ruby>本<rt>もと</rt></ruby>
+    """)
+    [
+        (ruby.base, ruby.reading)
+        for ruby in index_captions(per_character.captions).rubies
+        ]                       # [('日', 'ひ'), ('本', 'もと')]
+
+The decoded text expands the WebVTT character references (``&amp;``,
+``&lt;``, ``&gt;`` and numeric ones such as ``&#65;``); an unknown reference
+is kept as written. Tags that span several lines keep working, and the line
+of each span is recorded in its ``line`` attribute:
+
+.. code-block:: python
+
+    decoded = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:01.000 --> 00:00:02.000
+    a &amp; b &#65;
+    """)
+    decoded_index = index_captions(decoded.captions)
+    decoded_index.cues[0].text  # 'a & b A'
+
+
 Iterating over a slice of captions
 ----------------------------------
 

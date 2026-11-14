@@ -32,6 +32,33 @@ Usage
       print(caption.voice)       # cue voice span if any
       print(caption.voices)      # voices of every voice span in the text
 
+Indexing a corpus with ruby annotations
+---------------------------------------
+
+.. code-block:: python
+
+  from webvtt import index_captions
+
+  # original words and readings are indexed separately, and each reading
+  # points back to the range of the original characters it annotates
+  vtt = webvtt.from_string("""\
+  WEBVTT
+
+  00:00:01.000 --> 00:00:03.000
+  <v 田中><lang ja><ruby>東京<rt>とうきょう</rt></ruby>は</lang></v>
+  """)
+
+  index = index_captions(vtt.captions)
+  sorted(index.terms)     # ['は', '東京']
+  sorted(index.readings)  # ['とうきょう']
+
+  ruby = index.rubies[0]
+  ruby.base               # '東京'
+  ruby.reading            # 'とうきょう'
+  index.cue_for(ruby).start  # '00:00:01.000'
+  index.find_speaker('田中')[0].text  # '東京とうきょうは'
+  index.language_spans[0].lang        # 'ja'
+
 Writing captions
 ----------------
 

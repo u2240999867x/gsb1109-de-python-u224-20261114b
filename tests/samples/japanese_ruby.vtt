@@ -1,0 +1,12 @@
+WEBVTT
+
+cue-1
+00:00:01.000 --> 00:00:03.000
+<v 田中><lang ja><ruby>東京<rt>とうきょう</rt></ruby>は</lang></v>
+
+00:00:04.000 --> 00:00:05.000
+<ruby>図書館<rt>としょかん</rt></ruby>へ行く
+
+00:00:06.000 --> 00:00:08.000
+<ruby><rb>山&aelig;田</rb><rp>（</rp><rt>
+やまだ</rt><rp>）</rp></ruby> &#65; &amp; <lang en>Tokyo</lang>
