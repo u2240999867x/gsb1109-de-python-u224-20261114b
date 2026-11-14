@@ -149,6 +149,75 @@ Secondary bitmap is removed if it's not required.
     >>> pprint.pp(decoded)
     {'t': '0200', 'p': '0000080000000000', '21': '051'}
 
+Catalog Declared Fields and Their Byte Ranges
+---------------------------------------------
+:func:`iso8583.catalog` lists the fields that a message declares together with
+the bitmap position and the byte ranges that carry the length prefix and data.
+This is convenient for reconciliation and for tracing masked samples back to
+their business meaning.
+
+.. code-block:: python
+
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii as spec
+    >>> found = iso8583.catalog(b'02004000000000000000041234', spec)
+    >>> found['2'].bitmap
+    BitmapPosition(layer='primary', de=2, byte=0, bit=2, mask=0x40)
+    >>> found['2'].length_prefix, found['2'].data_range
+    (DataRange(20, 22), DataRange(22, 26))
+    >>> found.by_name('Primary Account Number (PAN)')[0].field
+    '2'
+
+Secondary and tertiary bitmap presence bits are not business fields.
+DE 1 and DE 65 appear only as :class:`iso8583.BitmapLayer` entries in
+``found.bitmaps``; ``found.fields`` contains business fields only.
+
+.. code-block:: python
+
+    >>> found = iso8583.catalog(
+    ...     b'0200800000000000000040000004000000' + b'A' + b'06' + b'111111',
+    ...     spec)
+    >>> found['66'].bitmap.layer_name
+    'secondary'
+    >>> '1' in found, '65' in found
+    (False, False)
+
+A field declared with zero length is not the same as an undeclared field. The
+former is present with an empty data range; the latter is absent.
+
+.. code-block:: python
+
+    >>> found = iso8583.catalog(b'0200400000000000000000', spec)
+    >>> found['2'].is_empty
+    True
+    >>> found['2'].value
+    ''
+    >>> found = iso8583.catalog(b'02000000000000000000', spec)
+    >>> '2' in found
+    False
+
+If the final bitmap layer is a few bytes short, the catalog does not borrow the
+following bytes to complete it. The declarations made by the preceding complete
+layers are retained; because the missing bitmap bytes leave the boundary
+between bitmap and data unknown, the retained entries have no byte ranges and
+the short layer consumes nothing.
+
+.. code-block:: python
+
+    >>> truncated = iso8583.catalog(
+    ...     b'02008000000000000000C000000004000000' + b'A01B', spec)
+    >>> truncated.bitmaps[2].complete
+    False
+    >>> truncated.bitmaps[2].available_length
+    4
+    >>> truncated['66'].data_range is None
+    True
+    >>> truncated.remaining
+    DataRange(36, 40)
+
+Use ``strict=True`` to raise :class:`iso8583.CatalogError` for a truncated
+message instead.
+
 Check for Mandatory Fields
 --------------------------
 Many ISO8583 implementations need to check if all mandatory fields

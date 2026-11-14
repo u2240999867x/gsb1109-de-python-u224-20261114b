@@ -102,6 +102,37 @@ to pretty print ISO8583 message.
     p   Bitmap, Primary               : b'4000000000000000'
     2   Primary Account Number (PAN)  : b'10' b'1234567890'
 
+Catalog Declared Fields
+-----------------------
+
+Use `iso8583.catalog <https://pyiso8583.readthedocs.io/en/latest/functions.html#iso8583.catalog>`_
+to list every field that an ISO8583 message declares, along with the bitmap
+position that declared it and the byte range that holds its data. This is
+useful for reconciliation and for analyzing masked samples.
+
+.. code-block:: python
+
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii as spec
+    >>> encoded_raw = b'02004000000000000000041234'
+    >>> found = iso8583.catalog(encoded_raw, spec)
+    >>> found["2"].bitmap
+    BitmapPosition(layer='primary', de=2, byte=0, bit=2, mask=0x40)
+    >>> found["2"].data_range
+    DataRange(22, 26)
+    >>> found["2"].value
+    '1234'
+    >>> found.by_name("Primary Account Number (PAN)")[0].field
+    '2'
+
+DE 1 and DE 65 are bitmap presence indicators. They are reported in
+``found.bitmaps`` and never become business fields. A declared field with
+length zero appears in the catalog with an empty ``DataRange``, while a
+field that was never declared is simply absent. If the final bitmap layer is
+short, the catalog keeps the declarations made by the preceding complete
+layers, does not pad the bitmap with the bytes that follow it, and leaves
+those bytes unconsumed.
+
 Contribute
 ----------
 

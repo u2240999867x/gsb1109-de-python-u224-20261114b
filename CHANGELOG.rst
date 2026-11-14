@@ -1,3 +1,15 @@
+4.1.0 - 2026-11-14
+------------------
+- Add `iso8583.catalog` (alias `iso8583.declared_fields`) that lists every
+  field declared by the primary, secondary, or tertiary bitmap together with
+  the bitmap position and the byte ranges of its length prefix and data.
+  - DE 1 and DE 65 are reported as bitmap layers and never as business fields.
+  - A declared zero-length field has an empty data range and remains
+    distinguishable from an undeclared field.
+  - A final bitmap layer that is shorter than expected consumes nothing, so
+    trailing business data is never read as bitmap bytes; declarations made by
+    the preceding complete layers are retained.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.

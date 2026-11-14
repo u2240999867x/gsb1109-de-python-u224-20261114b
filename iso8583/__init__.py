@@ -69,9 +69,27 @@ __all__ = [
     "DecodeError",
     "encode",
     "EncodeError",
+    "catalog",
+    "Catalog",
+    "CatalogError",
+    "BitmapLayer",
+    "BitmapPosition",
+    "DataRange",
+    "FieldDeclaration",
+    "declared_fields",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
+from iso8583.catalog import (
+    BitmapLayer,
+    BitmapPosition,
+    Catalog,
+    CatalogError,
+    DataRange,
+    FieldDeclaration,
+    catalog,
+    declared_fields,
+)
 from iso8583.decoder import DecodeError, decode
 from iso8583.encoder import EncodeError, encode
 from iso8583.tools import pp
