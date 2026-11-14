@@ -41,4 +41,5 @@ To install::
    howto
    specifications
    functions
+   migration
    changelog

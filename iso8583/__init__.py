@@ -69,9 +69,19 @@ __all__ = [
     "DecodeError",
     "encode",
     "EncodeError",
+    "rehearse_field",
+    "rehearse_message",
+    "rehearse_batch",
+    "length_header_capacity",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
 from iso8583.decoder import DecodeError, decode
 from iso8583.encoder import EncodeError, encode
+from iso8583.migrate import (
+    length_header_capacity,
+    rehearse_batch,
+    rehearse_field,
+    rehearse_message,
+)
 from iso8583.tools import pp

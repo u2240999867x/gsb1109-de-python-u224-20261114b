@@ -16,3 +16,10 @@ Exceptions
 Helper Functions
 ----------------
 .. autofunction:: pp
+
+Migration Rehearsal
+-------------------
+.. autofunction:: rehearse_field
+.. autofunction:: rehearse_message
+.. autofunction:: rehearse_batch
+.. autofunction:: length_header_capacity

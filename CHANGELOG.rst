@@ -1,3 +1,11 @@
+Unreleased
+----------
+- Add offline migration rehearsal: ``rehearse_field``, ``rehearse_message`` and
+  ``rehearse_batch`` pre-encode fields against a target specification and report
+  transcoded byte size, length header fit and readback equality without emitting
+  a message. Add ``length_header_capacity`` to derive the maximum length
+  expressible by a target length header.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.
