@@ -16,6 +16,7 @@ See [the repository README](https://github.com/workalendar/workalendar#available
 
 * [Basic usage](basic.md)
 * [Advanced usage](advanced.md)
+* [Sequential station scheduling](scheduling.md)
 * Advanced features:
   * [Class options](class-options.md)
   * [ISO Registry](iso-registry.md)

@@ -37,3 +37,9 @@ class ICalExportTargetPathError(ICalExportError):
     """
     Raised when the iCal export is impossible due to unusable target path
     """
+
+
+class SchedulingError(CalendarError):
+    """
+    Raised when a station chain or scheduling request is invalid.
+    """

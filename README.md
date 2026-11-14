@@ -72,6 +72,21 @@ datetime.date(2012, 12, 31)
 
 For a more complete documentation and advanced usage, go to [the official workalendar documentation](https://workalendar.github.io/workalendar).
 
+Sequential plans can also be worked backwards from a final deadline:
+
+```python
+>>> from workalendar.scheduling import Station, StationChain
+>>> chain = StationChain([
+...     Station('Station A', France(), 2, include_handover_day=True),
+...     Station('Station B', France(), 3),
+... ])
+>>> chain.latest_submission_date(date(2026, 11, 20))
+datetime.date(2026, 11, 16)
+```
+
+See [sequential station scheduling](docs/scheduling.md) for per-station
+calendars, holiday gaps and one-day shift analysis.
+
 ## External dependencies
 
 **Workalendar will require you to use Python 3.7+.**

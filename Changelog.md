@@ -2,6 +2,7 @@
 
 ## master (unreleased)
 
+- Added ``workalendar.scheduling`` for backward and forward planning across a sequence of stations with different calendars, processing durations and handover-day rules.
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
 
 ## v17.0.0 (2023-01-01)
