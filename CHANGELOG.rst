@@ -10,6 +10,10 @@ dev
 
 **API Changes (Backward Compatible)**
 
+- Added ``hpack.ArchivePlanner`` for selecting the cheapest combination of
+  raw header blocks and dynamic-table checkpoints that can be replayed in a
+  blank environment, along with ``hpack.replay`` for verifying such plans.
+
 **Bugfixes**
 
 

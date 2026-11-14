@@ -1,4 +1,6 @@
 # flake8: noqa
+from __future__ import annotations
+
 from collections import deque
 import logging
 from typing import Optional
@@ -21,6 +23,62 @@ def table_entry_size(name: bytes, value: bytes) -> int:
     See RFC7541 Section 4.1
     """
     return 32 + len(name) + len(value)
+
+
+class TableState:
+    """
+    An immutable snapshot of a :class:`HeaderTable` at one point in a
+    connection.
+
+    A snapshot records exactly the information that decides how every
+    subsequent index resolves: the table's maximum size, its current size and
+    its dynamic entries in eviction order (oldest first). Static entries are
+    shared by every connection and need not be stored.
+
+    Snapshots are comparable by value, so two checkpoints taken at different
+    times are equal if and only if they would decode identically.
+    """
+
+    __slots__ = ("maxsize", "current_size", "entries")
+
+    def __init__(
+        self,
+        maxsize: int,
+        current_size: int,
+        entries: tuple[tuple[bytes, bytes], ...],
+    ) -> None:
+        self.maxsize = maxsize
+        self.current_size = current_size
+        self.entries = entries
+
+    @property
+    def stored_size(self) -> int:
+        """
+        The number of bytes needed to archive this checkpoint in a blank
+        environment: the max size, the current size and each entry's name and
+        value. Entry-length prefixes are not counted, as they are implied by
+        the strings themselves.
+        """
+        return 16 + sum(len(name) + len(value) for name, value in self.entries)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, TableState):
+            return NotImplemented
+        return (
+            self.maxsize == other.maxsize
+            and self.current_size == other.current_size
+            and self.entries == other.entries
+        )
+
+    def __hash__(self) -> int:
+        return hash((self.maxsize, self.current_size, self.entries))
+
+    def __repr__(self) -> str:
+        return "TableState(%d, %d, %r)" % (
+            self.maxsize,
+            self.current_size,
+            self.entries,
+        )
 
 
 class HeaderTable:
@@ -218,6 +276,28 @@ class HeaderTable:
             cursize -= table_entry_size(name, value)
             log.debug("Evicting %s: %s from the header table", name, value)
         self._current_size = cursize
+
+    def snapshot(self) -> TableState:
+        """
+        Return an immutable snapshot of the current table state.
+
+        The snapshot can later be handed to :meth:`restore` to reconstruct a
+        table that resolves every index exactly the same way.
+        """
+        return TableState(
+            maxsize=self._maxsize,
+            current_size=self._current_size,
+            entries=tuple(self.dynamic_entries),
+        )
+
+    def restore(self, state: TableState) -> None:
+        """
+        Replace the current table contents with ``state``.
+        """
+        self._maxsize = state.maxsize
+        self._current_size = state.current_size
+        self.resized = False
+        self.dynamic_entries = deque(state.entries)
 
 
 def _build_static_table_mapping() -> dict[bytes, tuple[int, dict[bytes, int]]]:
