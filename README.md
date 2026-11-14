@@ -136,6 +136,9 @@ tag.duration: float | None       # audio duration in seconds
 tag.is_lossless: bool | None     # is audio lossless? (added in tinytag 2.3.0)
 tag.mime_type: str | None        # audio MIME type (added in tinytag 2.3.0) 
 tag.samplerate: int | None       # audio samples per second
+tag.sample_count: int | None     # total samples in the audio stream
+tag.audio_md5: str | None        # hex MD5 of the unencoded audio data,
+                                 # None if no signature was provided
 ```
 
 > [!WARNING]  
@@ -487,6 +490,13 @@ UnsupportedFormatError  # File format is not supported
 
 
 ## Changelog
+
+### 2.4.0  (2026-11-14)
+
+- Add 'sample_count' attribute for the FLAC stream sample count
+- Add 'audio_md5' attribute for the FLAC STREAMINFO audio MD5 signature
+- FLAC: Leave 'audio_md5' unset when the MD5 signature is all zeros
+- FLAC: Expose sample count even when STREAMINFO is too short for an MD5
 
 ### 2.3.2  (2026-09-07)
 

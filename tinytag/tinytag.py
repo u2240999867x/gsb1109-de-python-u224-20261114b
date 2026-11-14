@@ -96,6 +96,8 @@ class TinyTag:
         self.bitrate: float | None = None
         self.bitdepth: int | None = None
         self.samplerate: int | None = None
+        self.sample_count: int | None = None
+        self.audio_md5: str | None = None
 
         self.artist: str | None = None
         self.albumartist: str | None = None
@@ -186,7 +188,8 @@ class TinyTag:
         metadata."""
         audio_property_keys = {
             'filename', 'filesize', 'mime_type', 'duration', 'channels',
-            'bitrate', 'bitdepth', 'samplerate', 'is_lossless'
+            'bitrate', 'bitdepth', 'samplerate', 'sample_count',
+            'audio_md5', 'is_lossless'
         }
         fields: dict[str, str | float | list[str]] = {}
         for key, value in self.__dict__.items():
@@ -2130,6 +2133,15 @@ class _Flac(TinyTag):
                     self.duration = duration = total_samples / samplerate
                     if duration > 0:
                         self.bitrate = self.filesize * 8 / duration / 1000
+                if total_samples > 0:
+                    self.sample_count = total_samples
+                if len(head) >= 34:
+                    # An all-zero MD5 signature means the encoder did not
+                    # provide one, so leave audio_md5 unset instead of
+                    # treating every such file as the same audio stream.
+                    md5_signature = head[18:34]
+                    if any(md5_signature):
+                        self.audio_md5 = md5_signature.hex()
                 self.channels = channels
                 self.bitdepth = bitdepth
                 self.is_lossless = True

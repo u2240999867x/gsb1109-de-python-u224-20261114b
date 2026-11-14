@@ -12,6 +12,7 @@ import os.path
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
 from platform import python_implementation, system
+from struct import pack
 from sys import stdout
 from unittest import skipIf, TestCase
 
@@ -1407,6 +1408,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'Acoustic',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 163392,
+        'audio_md5': 'e64b8cd44ac2a3a9ba1d53fc79b17ed1',
         'title': 'test1',
         'track': 5,
         'year': '2023',
@@ -1842,6 +1845,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 211.48,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 44100,
+        'audio_md5': '1804d5d0ef9fec52ce3b4151d78ad9e6',
         'comment': 'hello',
     }),
     ('flac453sStereo.flac', {
@@ -1854,6 +1859,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 1.33982856,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 20000000,
+        'audio_md5': '162122ab46bab55c165d66802fa64ee4',
     }),
     ('flac1.5sStereo.flac', {
         'other': OtherFields(),
@@ -1871,6 +1878,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'Avantgarde',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 66129,
+        'audio_md5': 'cdf67383570c3ed31f9434e0617a4055',
         'comment': 'hello',
     }),
     ('flac_application.flac', {
@@ -1901,6 +1910,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 0.0023973103347463822,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 12067524,
+        'audio_md5': 'fd45d8e2be9876cc47e8501b78fc192d',
     }),
     ('no-tags.flac', {
         'other': OtherFields(),
@@ -1912,6 +1923,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 1.0985919653406853,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 162496,
+        'audio_md5': 'a1b141f766e9849ac3db1030a20a3c77',
     }),
     ('variable-block.flac', {
         'other': OtherFields({
@@ -1940,6 +1953,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'Anime Soundtrack',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 11540088,
+        'audio_md5': '4c99c39f0a660da0aa0b39d8a3e5545b',
         'disc_total': 2,
         'comment': 'Original Soundtrack',
         'composer': 'Boom Boom Satellites (Lyrics)',
@@ -1954,6 +1969,7 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'duration': 3.684716553287982,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 162496,
     }),
     ('106-short-picture-block-size.flac', {
         'other': OtherFields(),
@@ -1965,6 +1981,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'duration': 3.684716553287982,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 162496,
+        'audio_md5': 'a1b141f766e9849ac3db1030a20a3c77',
     }),
     ('with_padded_id3_header.flac', {
         'other': OtherFields(),
@@ -1979,6 +1997,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'genre',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 20000,
+        'audio_md5': 'd5391ffeb3f1c3cdf2e5ae1b77db8d1d',
         'title': 'title',
         'track': 1,
         'year': '2018',
@@ -2010,6 +2030,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'genre',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 20000,
+        'audio_md5': 'd5391ffeb3f1c3cdf2e5ae1b77db8d1d',
         'title': 'Track01',
         'track': 1,
         'track_total': 5,
@@ -2026,6 +2048,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'duration': 0.1,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 4410,
+        'audio_md5': 'ea7759a6e811e6df2c587d52b795a136',
     }),
     ('multiple_values_images.flac', {
         'other': OtherFields({
@@ -2049,6 +2073,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'genre': 'genre 1',
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 4410,
+        'audio_md5': 'ea7759a6e811e6df2c587d52b795a136',
         'disc': 1,
         'disc_total': 1,
         'track': 1,
@@ -2066,6 +2092,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 1.0985919653406853,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 162496,
+        'audio_md5': 'a1b141f766e9849ac3db1030a20a3c77',
     }),
     ('empty_file.flac', {
         'other': OtherFields(),
@@ -2081,6 +2109,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'duration': 0.1,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 4410,
+        'audio_md5': 'ea7759a6e811e6df2c587d52b795a136',
         'title': 'title',
     }),
     ('invalid_block_sizes.flac', {
@@ -2093,6 +2123,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'duration': 0.1,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 4410,
+        'audio_md5': 'ea7759a6e811e6df2c587d52b795a136',
         'title': 'some title',
         'artist': 'some artist',
         'track': 1,
@@ -2983,6 +3015,8 @@ TEST_FILES: dict[str, ExpectedTag] = dict([
         'bitrate': 0.2605356439543127,
         'samplerate': 44100,
         'bitdepth': 16,
+        'sample_count': 162496,
+        'audio_md5': 'a1b141f766e9849ac3db1030a20a3c77',
     }),
     ('magic_bytes_only_flac.x', {
         'other': OtherFields(),
@@ -3334,7 +3368,7 @@ class TestAll(TestCase):
                 filename = os.path.join(SAMPLE_FOLDER, testfile)
                 excluded_attrs = {
                     'bitdepth', 'bitrate', 'channels', 'duration',
-                    'is_lossless', 'samplerate'
+                    'is_lossless', 'samplerate', 'sample_count', 'audio_md5'
                 }
                 tag = TinyTag.get(filename, tags=True, duration=False)
                 results = {
@@ -3360,7 +3394,8 @@ class TestAll(TestCase):
                 filename = os.path.join(SAMPLE_FOLDER, testfile)
                 allowed_attrs = {
                     'bitdepth', 'bitrate', 'channels', 'duration', 'filesize',
-                    'is_lossless', 'mime_type', 'samplerate'
+                    'is_lossless', 'mime_type', 'samplerate', 'sample_count',
+                    'audio_md5'
                 }
                 tag = TinyTag.get(filename, tags=False, duration=True)
                 results = {
@@ -3572,7 +3607,9 @@ class TestAll(TestCase):
             "multiple_values_images.flac', 'filesize': 4749, "
             "'mime_type': 'audio/flac', 'is_lossless': True, 'duration': 0.1, "
             "'channels': 1, 'bitrate': 1.92, 'bitdepth': 16, "
-            "'samplerate': 44100, 'artist': 'artist 1', "
+            "'samplerate': 44100, 'sample_count': 4410, "
+            "'audio_md5': 'ea7759a6e811e6df2c587d52b795a136', "
+            "'artist': 'artist 1', "
             "'albumartist': None, 'composer': None, 'album': 'album 1', "
             "'disc': 1, 'disc_total': 1, 'title': None, 'track': 1, "
             "'track_total': 1, 'genre': 'genre 1', 'year': None, "
@@ -3621,7 +3658,9 @@ class TestAll(TestCase):
             "multiple_values_images.flac', 'filesize': 4749, "
             "'mime_type': 'audio/flac', 'is_lossless': True, 'duration': 0.1, "
             "'channels': 1, 'bitrate': 1.92, 'bitdepth': 16, "
-            "'samplerate': 44100, 'artist': ['artist 1', "
+            "'samplerate': 44100, 'sample_count': 4410, "
+            "'audio_md5': 'ea7759a6e811e6df2c587d52b795a136', "
+            "'artist': ['artist 1', "
             "'artist 2', 'artist 3'], 'album': ['album 1', 'album 2'], "
             "'disc': ['1', '2', '3'], 'disc_total': ['1', '2', '3'], "
             "'track': ['1', '2', '3'], 'track_total': ['1', '2', '3'], "
@@ -3650,3 +3689,128 @@ class TestAll(TestCase):
             "\\x00\\x01\\x01\\x00\\x00\\x02\\xa0lcm..', "
             "mime_type='image/jpeg', description='some image ë')]}"
         )
+
+
+def _make_flac_streaminfo(samplerate: int,
+                          channels: int,
+                          bitdepth: int,
+                          total_samples: int,
+                          md5_signature: bytes) -> BytesIO:
+    """Build a minimal in-memory FLAC containing one STREAMINFO block."""
+    info_qword = (
+        (samplerate & ((1 << 20) - 1)) << 44
+        | (channels - 1) << 41
+        | (bitdepth - 1) << 36
+        | total_samples & ((1 << 36) - 1)
+    )
+    streaminfo = (
+        pack('>HH', 4096, 4096)
+        + b'\x00\x00\x00' + b'\x00\x00\x00'
+        + pack('>Q', info_qword)
+        + md5_signature
+    )
+    block_header = bytes([0x80]) + len(streaminfo).to_bytes(3, 'big')
+    return BytesIO(b'fLaC' + block_header + streaminfo)
+
+
+class TestFlacAudioIdentity(TestCase):
+    """STREAMINFO-based audio identity (digest, channels, depth, samples)."""
+
+    SHARED_DIGEST = 'a1b141f766e9849ac3db1030a20a3c77'
+
+    def _get(self, streaminfo: BytesIO) -> TinyTag:
+        return TinyTag.get(file_obj=streaminfo)
+
+    def test_identity_fields_are_parsed(self) -> None:
+        tag = self._get(_make_flac_streaminfo(
+            44100, 2, 16, 1000,
+            bytes.fromhex(self.SHARED_DIGEST)
+        ))
+        self.assertEqual(tag.channels, 2)
+        self.assertEqual(tag.bitdepth, 16)
+        self.assertEqual(tag.sample_count, 1000)
+        self.assertEqual(tag.audio_md5, self.SHARED_DIGEST)
+
+    def test_zero_digest_is_not_an_identity(self) -> None:
+        # An all-zero MD5 signature means no digest was provided, so it
+        # must not be exposed as audio_md5 and must not group files.
+        tag = self._get(_make_flac_streaminfo(
+            48000, 2, 16, 500, b'\x00' * 16
+        ))
+        self.assertIsNone(tag.audio_md5)
+        self.assertEqual(tag.sample_count, 500)
+
+    def test_truncated_streaminfo_skips_digest(self) -> None:
+        info_qword = (
+            44100 << 44 | (2 - 1) << 41 | (16 - 1) << 36 | 162496
+        )
+        streaminfo = (
+            pack('>HH', 4096, 4096) + b'\x00' * 6 + pack('>Q', info_qword)
+        )
+        file_obj = BytesIO(
+            b'fLaC' + bytes([0x80]) + (18).to_bytes(3, 'big') + streaminfo
+        )
+        tag = TinyTag.get(file_obj=file_obj)
+        self.assertEqual(tag.sample_count, 162496)
+        self.assertIsNone(tag.audio_md5)
+
+    def test_same_digest_with_conflicting_params_stays_distinct(self) -> None:
+        master = self._get(_make_flac_streaminfo(
+            44100, 2, 16, 1000, bytes.fromhex(self.SHARED_DIGEST)
+        ))
+        release = self._get(_make_flac_streaminfo(
+            44100, 1, 24, 999, bytes.fromhex(self.SHARED_DIGEST)
+        ))
+        self.assertEqual(master.audio_md5, release.audio_md5)
+        # Both entries are retained in an export; the conflicting stream
+        # parameters show which declaration has to be re-checked.
+        self.assertNotEqual(
+            (master.channels, master.bitdepth, master.sample_count),
+            (release.channels, release.bitdepth, release.sample_count)
+        )
+        self.assertEqual((release.channels, release.bitdepth), (1, 24))
+        self.assertEqual(release.sample_count, 999)
+
+    def test_distinct_digests_are_not_grouped(self) -> None:
+        first = self._get(_make_flac_streaminfo(
+            44100, 2, 16, 1000, bytes.fromhex(self.SHARED_DIGEST)
+        ))
+        second = self._get(_make_flac_streaminfo(
+            44100, 2, 16, 1000,
+            bytes.fromhex('cdf67383570c3ed31f9434e0617a4055')
+        ))
+        self.assertNotEqual(first.audio_md5, second.audio_md5)
+
+    def test_identity_matches_across_differently_tagged_samples(self) -> None:
+        # Different tags/covers, same PCM: the no-tags and unsynced-lyrics
+        # samples share one STREAMINFO identity.
+        identity_keys = (
+            'audio_md5', 'channels', 'bitdepth', 'sample_count'
+        )
+        no_tags = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'no-tags.flac')
+        )
+        with_lyrics = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'unsynced_lyrics.flac')
+        )
+        self.assertTrue(all(no_tags.__dict__[key] is not None
+                            for key in identity_keys))
+        for key in identity_keys:
+            self.assertEqual(
+                no_tags.__dict__[key], with_lyrics.__dict__[key], key
+            )
+
+    def test_zero_digest_sample_is_excluded_from_digest_groups(self) -> None:
+        tag = TinyTag.get(
+            os.path.join(SAMPLE_FOLDER, 'zero_value_properties.flac')
+        )
+        self.assertIsNone(tag.audio_md5)
+        self.assertIsNone(tag.sample_count)
+
+    def test_identity_is_included_in_flat_dict(self) -> None:
+        tag = self._get(_make_flac_streaminfo(
+            44100, 2, 16, 1000, bytes.fromhex(self.SHARED_DIGEST)
+        ))
+        data = tag.as_dict()
+        self.assertEqual(data['sample_count'], 1000)
+        self.assertEqual(data['audio_md5'], self.SHARED_DIGEST)
