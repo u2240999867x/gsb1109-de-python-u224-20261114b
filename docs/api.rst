@@ -44,6 +44,16 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.HyperlinkParams
 
+.. autofunction:: wcwidth.HyperlinkRegion
+
+.. autofunction:: wcwidth.HyperlinkSummary
+
+.. autofunction:: wcwidth.iter_hyperlink_regions
+
+.. autofunction:: wcwidth.count_visible_keys
+
+.. autofunction:: wcwidth.count_clickable_keys
+
 .. autofunction:: wcwidth.TextSizing
 
 .. autofunction:: wcwidth.TextSizingParams

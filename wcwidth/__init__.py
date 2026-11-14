@@ -14,6 +14,7 @@ __lazy_modules__ = [
     "wcwidth.escape_sequences",
     "wcwidth.grapheme",
     "wcwidth.hyperlink",
+    "wcwidth.hyperlink_summary",
     "wcwidth.linebreak",
     "wcwidth.sgr_state",
     "wcwidth.table_ambiguous",
@@ -37,6 +38,9 @@ from ._clip import clip
 from .bisearch import bisearch as _bisearch
 from .textwrap import SequenceTextWrapper, wrap
 from .hyperlink import Hyperlink, HyperlinkParams
+from .hyperlink_summary import (HyperlinkRegion, HyperlinkSummary,
+                                count_clickable_keys, count_visible_keys,
+                                iter_hyperlink_regions)
 from .linebreak import LineBreak, iter_line_breaks
 from ._constants import list_term_programs
 from .table_vs16 import VS16_NARROW_TO_WIDE
@@ -114,7 +118,9 @@ __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
            'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
            'list_versions', 'list_term_programs', 'propagate_sgr',
-           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
+           'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams',
+           'HyperlinkRegion', 'HyperlinkSummary', 'iter_hyperlink_regions',
+           'count_visible_keys', 'count_clickable_keys')
 
 # Version is stamped by code generation (bin/update-tables.py) from pyproject.toml.
 __version__ = '0.9.5'

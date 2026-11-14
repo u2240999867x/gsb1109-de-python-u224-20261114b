@@ -3,6 +3,11 @@ History
 =======
 
 0.9.5 *unreleased*
+  * **New** `HyperlinkSummary`_, `HyperlinkRegion`_, `iter_hyperlink_regions()`_,
+    `count_visible_keys()`_, and `count_clickable_keys()`_ summarize terminal captures with a
+    visible text key that ignores styling and a clickable content key that records each OSC 8
+    hyperlink target and its visible character range, so identical-looking lines backed by
+    different links can be counted separately.
   * **New** `iter_line_breaks()`_ in Python and ``wcwidth_linebreak_breaks_u32()`` in libwcwidth,
     following `UAX #14`_ line breaking.  ``wcwidth_linebreak_breaks_u32()`` takes a ``hyphens``
     argument, and libwcwidth adds ``line_break`` and ``break_on_hyphens`` fields to
@@ -394,6 +399,11 @@ https://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c::
 .. _`list_versions()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.list_versions
 .. _`list_term_programs()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.list_term_programs
 .. _`HyperlinkParams.parse()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.HyperlinkParams
+.. _`HyperlinkSummary`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.HyperlinkSummary
+.. _`HyperlinkRegion`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.HyperlinkRegion
+.. _`iter_hyperlink_regions()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_hyperlink_regions
+.. _`count_visible_keys()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.count_visible_keys
+.. _`count_clickable_keys()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.count_clickable_keys
 .. _`parity padding`: https://jazcap53.github.io/pythons-eccentric-strcenter.html
 .. _`kitty text sizing protocol`: https://sw.kovidgoyal.net/kitty/text-sizing-protocol/
 .. _Corrections: https://wcwidth.readthedocs.io/en/latest/intro.html#corrections
