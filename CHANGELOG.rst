@@ -1,3 +1,12 @@
+Unreleased
+----------
+- Add `iso8583.BcdSide`, `iso8583.convert_field`, `iso8583.encode_side` and
+  `iso8583.decode_side` to migrate historical BCD fields between padding dialects.
+  The padding side and the length-counting rule are configured independently and
+  the business digit width is preserved. A pad nibble that cannot be told apart
+  from a business zero raises `iso8583.BcdAmbiguityError` listing the missing
+  specification decisions instead of guessing.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.

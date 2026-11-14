@@ -292,3 +292,64 @@ And encode the data.
     >>> encoded_raw, encoded = iso8583.encode(decoded, spec)
     >>> encoded_raw
     bytearray(b'02004000000000000000\x15\x12\x12\x00\x00\x00\x02\x12\x10')
+
+Migrate Between BCD Padding Dialects
+-------------------------------------
+Two partners may disagree about an odd-length BCD field in two *independent*
+ways. Keep the two rules separate instead of treating them as one change:
+
+- **Padding rule** - where the nibble that rounds odd data up to a whole byte
+  sits. The legacy packet right-pads (``"123"`` -> ``"\x12\x30"``); the new
+  specification left-pads (``"123"`` -> ``"\x01\x23"``).
+- **Length rule** - what the BCD length prefix counts. The legacy packet
+  counts every nibble on the wire *including the pad*; the new specification
+  counts only valid business nibbles.
+
+``iso8583.BcdSide`` models exactly those two rules, and ``iso8583.convert_field``
+encodes the same business digits under each side. The decoded value is kept as
+an exact string, so leading and trailing zeros keep their width (``"01230"``
+never becomes ``"123"``).
+
+.. code-block:: python
+
+    >>> import iso8583
+    >>> legacy = iso8583.BcdSide("legacy", pad_side="right", length_counts_pad=True)
+    >>> partner = iso8583.BcdSide("partner", pad_side="left", length_counts_pad=False)
+    >>> migration = iso8583.convert_field("01230", legacy, partner)
+    >>> migration.width
+    5
+    >>> migration.source.wire.hex(" ")   # length 6 = 5 digits + right pad '0'
+    '06 01 23 00'
+    >>> migration.target.wire.hex(" ")   # length 5 = valid nibbles, pad moved to left
+    '05 00 12 30'
+
+The same conversion round-trips a field that holds only one zero.
+
+.. code-block:: python
+
+    >>> single = iso8583.convert_field("0", legacy, partner)
+    >>> single.source.wire.hex(" ")
+    '02 00'
+    >>> single.target.wire.hex(" ")
+    '01 00'
+    >>> iso8583.convert_field(single.value, partner, legacy).target_wire == single.source_wire
+    True
+
+When reading an actual historical packet, decode it with ``iso8583.decode_side``
+instead of assuming the value. If the last nibble could be either a business
+zero or a right pad, the packet alone cannot decide; the call raises
+``iso8583.BcdAmbiguityError`` whose ``missing_specs`` lists the decisions that
+must be supplied. Once the rule is known, pass it explicitly.
+
+.. code-block:: python
+
+    >>> try:
+    ...     iso8583.decode_side(bytes.fromhex("012300"), 6, legacy)
+    ... except iso8583.BcdAmbiguityError as error:
+    ...     len(error.missing_specs)
+    3
+    >>> iso8583.decode_side(bytes.fromhex("012300"), 6, legacy, assume_pad=True).value
+    '01230'
+    >>> iso8583.decode_side(bytes.fromhex("012300"), 6, legacy, assume_pad=False).value
+    '012300'
+

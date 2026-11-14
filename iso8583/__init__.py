@@ -69,9 +69,27 @@ __all__ = [
     "DecodeError",
     "encode",
     "EncodeError",
+    "BcdSide",
+    "BcdFieldEncoding",
+    "BcdFieldConversion",
+    "BcdMigrationError",
+    "BcdAmbiguityError",
+    "convert_field",
+    "encode_side",
+    "decode_side",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
+from iso8583.bcd_migration import (
+    BcdAmbiguityError,
+    BcdFieldConversion,
+    BcdFieldEncoding,
+    BcdMigrationError,
+    BcdSide,
+    convert_field,
+    decode_side,
+    encode_side,
+)
 from iso8583.decoder import DecodeError, decode
 from iso8583.encoder import EncodeError, encode
 from iso8583.tools import pp
