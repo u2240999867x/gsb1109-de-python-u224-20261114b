@@ -96,6 +96,11 @@ class TextMap:
     """
     A TextMap maps each unicode character in the text to an individual `char`
     object (or, in the case of layout-implied whitespace, `None`).
+
+    For search/retrieval purposes, it also maintains a normalized "index"
+    (`index_tuples` / `index_string`) in which every run of whitespace —
+    whether backed by a real `char` object or implied by inter-word
+    distances — is collapsed into a single space mapped to `None`.
     """
 
     def __init__(
@@ -109,6 +114,43 @@ class TextMap:
         self.line_dir_render = line_dir_render
         self.char_dir_render = char_dir_render
         self.as_string = self.to_string()
+        self.index_tuples = self._collapse_whitespace(tuples)
+        self.index_string = "".join(map(itemgetter(0), self.index_tuples))
+        self.char_to_indices = self._map_chars_to_indices(self.index_tuples)
+        self._raw_char_to_indices = self._map_chars_to_indices(self.tuples)
+
+    @staticmethod
+    def _collapse_whitespace(
+        tuples: List[Tuple[str, Optional[T_obj]]],
+    ) -> List[Tuple[str, Optional[T_obj]]]:
+        collapsed: List[Tuple[str, Optional[T_obj]]] = []
+        for text, char in tuples:
+            if text.isspace():
+                if collapsed and collapsed[-1][0] == " ":
+                    continue
+                collapsed.append((" ", char))
+            else:
+                collapsed.append((text, char))
+        return collapsed
+
+    @staticmethod
+    def _map_chars_to_indices(
+        tuples: List[Tuple[str, Optional[T_obj]]],
+    ) -> Dict[int, List[int]]:
+        mapping: Dict[int, List[int]] = {}
+        for i, (_text, char) in enumerate(tuples):
+            if char is not None:
+                mapping.setdefault(id(char), []).append(i)
+        return mapping
+
+    def get_char_indices(self, char: T_obj) -> List[int]:
+        """
+        Given a `char` object, return the list of positions in the search
+        index (`self.index_string`) that the char affects. A ligature char
+        such as "ﬁ" will map to more than one position, while a char
+        absent from the text map will return an empty list.
+        """
+        return list(self.char_to_indices.get(id(char), []))
 
     def to_string(self) -> str:
         cd = self.char_dir_render
@@ -148,10 +190,43 @@ class TextMap:
         main_group: int = 0,
         return_groups: bool = True,
         return_chars: bool = True,
+        tuples: Optional[List[Tuple[str, Optional[T_obj]]]] = None,
+        char_to_indices: Optional[Dict[int, List[int]]] = None,
     ) -> Dict[str, Any]:
-        subset = self.tuples[m.start(main_group) : m.end(main_group)]
-        chars = [c for (text, c) in subset if c is not None]
+        if tuples is None:
+            tuples = self.index_tuples
+        if char_to_indices is None:
+            char_to_indices = self.char_to_indices
+
+        start = m.start(main_group)
+        end = m.end(main_group)
+        subset = tuples[start:end]
+
+        # The exact set of glyphs backing the match, de-duplicated and in
+        # reading order. (A ligature such as "ﬁ" backs two index characters
+        # but is a single glyph.)
+        chars = []
+        seen_char_ids = set()
+        for _text, c in subset:
+            if c is not None and id(c) not in seen_char_ids:
+                seen_char_ids.add(id(c))
+                chars.append(c)
+
         x0, top, x1, bottom = objects_to_bbox(chars)
+
+        # A match is "partial" if a glyph at either boundary also backs
+        # index characters *outside* the match — e.g., when only the second
+        # half of a ligature matches. In that case the glyph's bounding box
+        # is returned whole; it cannot be precisely subdivided.
+        partial = False
+        for i in {start, end - 1}:
+            if 0 <= i < len(tuples):
+                c = tuples[i][1]
+                if c is not None and any(
+                    j < start or j >= end for j in char_to_indices.get(id(c), [])
+                ):
+                    partial = True
+                    break
 
         result = {
             "text": m.group(main_group),
@@ -159,6 +234,9 @@ class TextMap:
             "top": top,
             "x1": x1,
             "bottom": bottom,
+            "start": start,
+            "end": end,
+            "partial": partial,
         }
 
         if return_groups:
@@ -177,6 +255,7 @@ class TextMap:
         return_groups: bool = True,
         return_chars: bool = True,
         main_group: int = 0,
+        collapse_whitespace: bool = True,
     ) -> List[Dict[str, Any]]:
         if isinstance(pattern, Pattern):
             if regex is False:
@@ -195,7 +274,16 @@ class TextMap:
             flags = re.I if case is False else 0
             compiled = re.compile(pattern, flags)
 
-        gen = re.finditer(compiled, self.as_string)
+        if collapse_whitespace:
+            string = self.index_string
+            tuples = self.index_tuples
+            char_to_indices = self.char_to_indices
+        else:
+            string = self.as_string
+            tuples = self.tuples
+            char_to_indices = self._raw_char_to_indices
+
+        gen = re.finditer(compiled, string)
         # Remove zero-length matches (can happen, e.g., with optional
         # patterns in regexes) and whitespace-only matches
         filtered = filter(lambda m: bool(m.group(main_group).strip()), gen)
@@ -205,6 +293,8 @@ class TextMap:
                 return_groups=return_groups,
                 return_chars=return_chars,
                 main_group=main_group,
+                tuples=tuples,
+                char_to_indices=char_to_indices,
             )
             for m in filtered
         ]
@@ -226,7 +316,11 @@ class TextMap:
             pat = r"([^\n]+)"
 
         return self.search(
-            pat, main_group=1, return_chars=return_chars, return_groups=False
+            pat,
+            main_group=1,
+            return_chars=return_chars,
+            return_groups=False,
+            collapse_whitespace=False,
         )
 
 

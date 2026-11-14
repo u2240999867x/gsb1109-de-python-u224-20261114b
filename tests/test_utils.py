@@ -467,8 +467,82 @@ class Test(unittest.TestCase):
         results = page.search(r"10 Tuesday", layout=False)
         assert len(results) == 1
 
+        # With whitespace collapsing (the default), the layout-preserving
+        # textmap's padded gaps collapse to single spaces and match
         results = page.search(r"10 Tuesday", layout=True)
+        assert len(results) == 1
+
+        # ... but collapsing can be disabled
+        results = page.search(r"10 Tuesday", layout=True, collapse_whitespace=False)
         assert len(results) == 0
+
+    def test_search_index_collapses_whitespace(self):
+        page = self.pdf_scotus.pages[0]
+        textmap = page.get_textmap()
+        assert "  " not in textmap.index_string
+        assert "\n" not in textmap.index_string
+
+        # A phrase spanning a line break matches in the collapsed index
+        text = page.extract_text()
+        first, second = text.split("\n")[:2]
+        phrase = (first.split()[-1] + " " + second.split()[0]).rstrip(",.")
+        results = page.search(phrase, regex=False)
+        assert len(results) == 1
+        assert results[0]["text"] == phrase
+
+    def test_search_ligature_partial_match(self):
+        path = os.path.join(HERE, "pdfs/issue-598-example.pdf")
+        with pdfplumber.open(path) as pdf:
+            page = pdf.pages[0]
+
+            # A full-ligature match is not partial, and the ligature glyph
+            # appears only once in the (de-duplicated) glyph set
+            full = page.search("fiction", regex=False)[0]
+            assert [c["text"] for c in full["chars"]] == ["ﬁ", "c", "t", "i", "o", "n"]
+            assert full["partial"] is False
+
+            # Matching only the second half of the "ﬁ" ligature flags the
+            # result as partial, and the bounding box spans the *entire*
+            # ligature glyph rather than a subdivided portion of it
+            half = page.search("iction", regex=False)[0]
+            assert half["partial"] is True
+            assert half["chars"][0]["text"] == "ﬁ"
+            assert half["x0"] == full["x0"]
+            assert half["x1"] == full["x1"]
+
+            # A match covering only the first half is likewise partial
+            first = page.search(r"(f)iction", main_group=1)[0]
+            assert first["text"] == "f"
+            assert first["partial"] is True
+
+    def test_search_implied_whitespace_has_no_glyph(self):
+        page = self.pdf_scotus.pages[0]
+        results = page.search("SUPREME COURT", regex=False)
+        chars = results[0]["chars"]
+        # The space between the words is implied by inter-word distance,
+        # so it contributes no glyph to the matched set
+        assert "".join(c["text"] for c in chars) == "SUPREMECOURT"
+        assert results[0]["partial"] is False
+
+    def test_textmap_get_char_indices(self):
+        path = os.path.join(HERE, "pdfs/issue-598-example.pdf")
+        with pdfplumber.open(path) as pdf:
+            page = pdf.pages[0]
+            textmap = page.get_textmap()
+
+            match = page.search("fiction", regex=False)[0]
+            ligature = match["chars"][0]
+            indices = textmap.get_char_indices(ligature)
+            # The "ﬁ" ligature glyph backs two index characters
+            assert len(indices) == 2
+            assert textmap.index_string[indices[0] : indices[-1] + 1] == "fi"
+
+            # An ordinary glyph backs exactly one index character
+            ordinary = match["chars"][1]
+            assert textmap.get_char_indices(ordinary) == [match["start"] + 2]
+
+            # A char not present in the text map maps to no index characters
+            assert textmap.get_char_indices({"text": "z"}) == []
 
     def test_extract_text_lines(self):
         page = self.pdf_scotus.pages[0]

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- `Page.search(...)` / `TextMap.search(...)` now search a normalized index in which runs of whitespace (including line breaks and layout-implied spacing) are collapsed into a single space; pass `collapse_whitespace=False` to search the raw text instead.
+- Search results now include the match's `start`/`end` index positions and a `partial` flag, which is `True` when the match covers only part of a ligature glyph (e.g., the second half of `ﬁ`); in that case the bounding box spans the entire glyph, which cannot be precisely subdivided. The returned `chars` are now de-duplicated, so a ligature glyph appears only once.
+- Add `TextMap.get_char_indices(char)`, a reverse lookup returning the search-index positions backed by a given char object, and the underlying `TextMap.index_string` / `TextMap.index_tuples` / `TextMap.char_to_indices` structures.
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed

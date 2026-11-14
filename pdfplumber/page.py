@@ -514,6 +514,7 @@ class Page(Container):
         main_group: int = 0,
         return_chars: bool = True,
         return_groups: bool = True,
+        collapse_whitespace: bool = True,
         **kwargs: Any,
     ) -> List[Dict[str, Any]]:
         textmap = self.get_textmap(**tuplify_list_kwargs(kwargs))
@@ -524,6 +525,7 @@ class Page(Container):
             main_group=main_group,
             return_chars=return_chars,
             return_groups=return_groups,
+            collapse_whitespace=collapse_whitespace,
         )
 
     def extract_text(self, **kwargs: Any) -> str:
