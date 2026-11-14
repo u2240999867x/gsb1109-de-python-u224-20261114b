@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- `Extent.from_items` and `Collection.update_extent_from_items` now preserve
+  disjoint observation seasons as separate temporal intervals instead of
+  collapsing all items into a single time window. Instant observations are
+  treated as degenerate intervals, overlapping or touching intervals are merged,
+  explicit open ranges are distinguished from unregistered endpoints, and the
+  collection extent is recomputed from the remaining valid items whenever an
+  item is added, removed, or cleared.
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed

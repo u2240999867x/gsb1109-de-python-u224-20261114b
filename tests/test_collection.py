@@ -154,6 +154,7 @@ class CollectionTest(unittest.TestCase):
         assert isinstance(base_collection, Collection)
         base_extent = base_collection.extent
         collection = base_collection.clone()
+        test_datetime = TEST_DATETIME.replace(tzinfo=tz.UTC)
 
         item1 = Item(
             id="test-item-1",
@@ -165,7 +166,7 @@ class CollectionTest(unittest.TestCase):
         )
 
         item2 = Item(
-            id="test-item-1",
+            id="test-item-2",
             geometry=ARBITRARY_GEOM,
             bbox=[-180, -90, 180, 90],
             datetime=None,
@@ -187,9 +188,27 @@ class CollectionTest(unittest.TestCase):
         self.assertNotEqual(
             base_extent.temporal.intervals, collection.extent.temporal.intervals
         )
+        # The new instant does not connect to the existing 2019 observations,
+        # so both disjoint observation seasons are retained.
+        self.assertEqual(
+            [
+                [
+                    base_extent.temporal.intervals[0][0],
+                    base_extent.temporal.intervals[0][1],
+                ],
+                [test_datetime, test_datetime],
+            ],
+            collection.extent.temporal.intervals,
+        )
+
+        # Removing the item covering the later season reverts the extent to the
+        # remaining valid items without shrinking the shared 2019 endpoint.
         collection.remove_item("test-item-1")
-        collection.update_extent_from_items()
         self.assertNotEqual([[-180, -90, 180, 90]], collection.extent.spatial.bboxes)
+        self.assertEqual(
+            base_extent.temporal.intervals, collection.extent.temporal.intervals
+        )
+
         collection.add_item(item2)
 
         collection.update_extent_from_items()
@@ -198,8 +217,12 @@ class CollectionTest(unittest.TestCase):
             [
                 [
                     item2.common_metadata.start_datetime,
+                    item2.common_metadata.end_datetime,
+                ],
+                [
+                    base_extent.temporal.intervals[0][0],
                     base_extent.temporal.intervals[0][1],
-                ]
+                ],
             ],
             collection.extent.temporal.intervals,
         )
@@ -474,11 +497,23 @@ class ExtentTest(unittest.TestCase):
         self.assertEqual(len(extent.spatial.bboxes), 1)
         self.assertEqual(extent.spatial.bboxes[0], [-10, -20, 10, 1])
 
-        self.assertEqual(len(extent.temporal.intervals), 1)
-        interval = extent.temporal.intervals[0]
-
-        self.assertEqual(interval[0], datetime(2000, 1, 1, 12, 0, 0, 0, tzinfo=tz.UTC))
-        self.assertEqual(interval[1], datetime(2001, 1, 1, 12, 0, 0, 0, tzinfo=tz.UTC))
+        # The instant observation falls inside item2's interval, while the
+        # item3 season is disjoint and must be kept as a separate interval.
+        self.assertEqual(len(extent.temporal.intervals), 2)
+        self.assertEqual(
+            extent.temporal.intervals[0],
+            [
+                datetime(2000, 1, 1, 12, 0, 0, 0, tzinfo=tz.UTC),
+                datetime(2000, 7, 1, 12, 0, 0, 0, tzinfo=tz.UTC),
+            ],
+        )
+        self.assertEqual(
+            extent.temporal.intervals[1],
+            [
+                datetime(2000, 12, 1, 12, 0, 0, 0, tzinfo=tz.UTC),
+                datetime(2001, 1, 1, 12, 0, 0, 0, tzinfo=tz.UTC),
+            ],
+        )
 
     def test_to_from_dict(self) -> None:
         spatial_dict = {
@@ -702,3 +737,281 @@ def test_permissive_temporal_extent_deserialization(collection: Collection) -> N
     ]["interval"][0]
     with pytest.warns(UserWarning):
         Collection.from_dict(collection_dict)
+
+
+def _temporal_item(
+    item_id: str,
+    instant: datetime | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+) -> Item:
+    properties: dict[str, Any] = {}
+    if start is not None:
+        properties["start_datetime"] = datetime_to_str(start)
+    if end is not None:
+        properties["end_datetime"] = datetime_to_str(end)
+    return Item(
+        id=item_id,
+        geometry=ARBITRARY_GEOM,
+        bbox=ARBITRARY_BBOX,
+        datetime=instant,
+        properties=properties,
+    )
+
+
+def _empty_collection() -> Collection:
+    empty_intervals: list[list[datetime | None]] = [[None, None]]
+    return Collection(
+        id="test-collection",
+        description="test",
+        extent=Extent(
+            spatial=SpatialExtent(bboxes=[ARBITRARY_BBOX]),
+            temporal=TemporalExtent(empty_intervals),
+        ),
+    )
+
+
+def test_temporal_extent_keeps_disjoint_observation_seasons() -> None:
+    winter = _temporal_item(
+        "winter",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 2, 1, tzinfo=tz.UTC),
+    )
+    summer = _temporal_item(
+        "summer",
+        start=datetime(2020, 6, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 7, 1, tzinfo=tz.UTC),
+    )
+
+    extent = Extent.from_items([winter, summer])
+
+    assert extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 2, 1, tzinfo=tz.UTC)],
+        [datetime(2020, 6, 1, tzinfo=tz.UTC), datetime(2020, 7, 1, tzinfo=tz.UTC)],
+    ]
+
+
+def test_temporal_extent_merges_touching_and_overlapping_intervals() -> None:
+    first = _temporal_item(
+        "first",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 3, 1, tzinfo=tz.UTC),
+    )
+    touching = _temporal_item(
+        "touching",
+        start=datetime(2020, 3, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 4, 1, tzinfo=tz.UTC),
+    )
+    overlapping = _temporal_item(
+        "overlapping",
+        start=datetime(2020, 2, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 5, 1, tzinfo=tz.UTC),
+    )
+
+    extent = Extent.from_items([first, touching, overlapping])
+
+    assert extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 5, 1, tzinfo=tz.UTC)]
+    ]
+
+
+def test_temporal_extent_distinguishes_open_ended_from_unregistered() -> None:
+    half_open = _temporal_item(
+        "half-open",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 2, 1, tzinfo=tz.UTC),
+    )
+    # Unregister the end endpoint: the observation is explicitly unbounded,
+    # not a bounded interval whose end is merely missing.
+    half_open.common_metadata.end_datetime = None
+    earlier = _temporal_item("earlier", instant=datetime(2019, 6, 1, tzinfo=tz.UTC))
+
+    extent = Extent.from_items([half_open, earlier])
+
+    assert extent.temporal.intervals == [
+        [datetime(2019, 6, 1, tzinfo=tz.UTC), datetime(2019, 6, 1, tzinfo=tz.UTC)],
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), None],
+    ]
+
+    # Any later observation is genuinely covered by the open-ended interval.
+    later = _temporal_item("later", instant=datetime(2021, 6, 1, tzinfo=tz.UTC))
+    assert Extent.from_items([half_open, later]).temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), None]
+    ]
+
+
+def test_temporal_extent_open_start_merges_earlier_season() -> None:
+    open_start = _temporal_item(
+        "open-start",
+        start=datetime(2020, 3, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 4, 1, tzinfo=tz.UTC),
+    )
+    open_start.common_metadata.start_datetime = None
+    earlier = _temporal_item(
+        "earlier",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 2, 1, tzinfo=tz.UTC),
+    )
+
+    extent = Extent.from_items([open_start, earlier])
+
+    assert extent.temporal.intervals == [[None, datetime(2020, 4, 1, tzinfo=tz.UTC)]]
+
+
+def test_collection_extent_tracks_added_and_removed_items() -> None:
+    collection = _empty_collection()
+    first = _temporal_item(
+        "first",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 3, 1, tzinfo=tz.UTC),
+    )
+    second = _temporal_item(
+        "second",
+        start=datetime(2020, 2, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 4, 1, tzinfo=tz.UTC),
+    )
+
+    collection.add_item(first)
+    assert collection.extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 3, 1, tzinfo=tz.UTC)]
+    ]
+
+    collection.add_item(second)
+    # The two observations connect, so they collapse into one span.
+    assert collection.extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 4, 1, tzinfo=tz.UTC)]
+    ]
+
+    collection.remove_item("second")
+    # Revoking the second scene disconnects nothing that the remaining item
+    # does not still cover on its own.
+    assert collection.extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 3, 1, tzinfo=tz.UTC)]
+    ]
+
+
+def test_collection_extent_splits_when_connecting_scene_revoked() -> None:
+    collection = _empty_collection()
+    winter = _temporal_item(
+        "winter",
+        start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 2, 1, tzinfo=tz.UTC),
+    )
+    bridge = _temporal_item(
+        "bridge",
+        start=datetime(2020, 1, 15, tzinfo=tz.UTC),
+        end=datetime(2020, 6, 15, tzinfo=tz.UTC),
+    )
+    summer = _temporal_item(
+        "summer",
+        start=datetime(2020, 6, 1, tzinfo=tz.UTC),
+        end=datetime(2020, 7, 1, tzinfo=tz.UTC),
+    )
+    collection.add_items([winter, bridge, summer])
+    assert collection.extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 7, 1, tzinfo=tz.UTC)]
+    ]
+
+    collection.remove_item("bridge")
+
+    assert collection.extent.temporal.intervals == [
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 2, 1, tzinfo=tz.UTC)],
+        [datetime(2020, 6, 1, tzinfo=tz.UTC), datetime(2020, 7, 1, tzinfo=tz.UTC)],
+    ]
+
+
+def test_collection_extent_shared_earliest_endpoint_not_shrunk() -> None:
+    collection = _empty_collection()
+    shared_start = datetime(2019, 12, 31, tzinfo=tz.UTC)
+    scene_a = _temporal_item(
+        "scene-a", start=shared_start, end=datetime(2020, 1, 5, tzinfo=tz.UTC)
+    )
+    scene_b = _temporal_item(
+        "scene-b", start=shared_start, end=datetime(2020, 1, 10, tzinfo=tz.UTC)
+    )
+    collection.add_items([scene_a, scene_b])
+
+    collection.remove_item("scene-a")
+
+    # scene-b still starts at the same earliest endpoint, so the extent must
+    # not be shortened by revoking scene-a.
+    assert collection.extent.temporal.intervals == [
+        [shared_start, datetime(2020, 1, 10, tzinfo=tz.UTC)]
+    ]
+
+
+def test_collection_extent_matches_full_recomputation_from_valid_items() -> None:
+    collection = _empty_collection()
+    items = [
+        _temporal_item(
+            "season-1",
+            start=datetime(2019, 1, 1, tzinfo=tz.UTC),
+            end=datetime(2019, 2, 1, tzinfo=tz.UTC),
+        ),
+        _temporal_item("instant-1", instant=datetime(2019, 6, 1, tzinfo=tz.UTC)),
+        _temporal_item(
+            "season-2",
+            start=datetime(2020, 1, 1, tzinfo=tz.UTC),
+            end=datetime(2020, 2, 1, tzinfo=tz.UTC),
+        ),
+        _temporal_item("instant-2", instant=datetime(2020, 6, 1, tzinfo=tz.UTC)),
+    ]
+    collection.add_items(items)
+    collection.remove_item("instant-1")
+    collection.add_item(
+        _temporal_item(
+            "season-3",
+            start=datetime(2021, 1, 1, tzinfo=tz.UTC),
+            end=datetime(2021, 2, 1, tzinfo=tz.UTC),
+        )
+    )
+
+    remaining = list(collection.get_items())
+    recomputed = Extent.from_items(remaining).temporal.intervals
+
+    assert collection.extent.temporal.intervals == recomputed
+    assert collection.extent.temporal.intervals == [
+        [datetime(2019, 1, 1, tzinfo=tz.UTC), datetime(2019, 2, 1, tzinfo=tz.UTC)],
+        [datetime(2020, 1, 1, tzinfo=tz.UTC), datetime(2020, 2, 1, tzinfo=tz.UTC)],
+        [datetime(2020, 6, 1, tzinfo=tz.UTC), datetime(2020, 6, 1, tzinfo=tz.UTC)],
+        [datetime(2021, 1, 1, tzinfo=tz.UTC), datetime(2021, 2, 1, tzinfo=tz.UTC)],
+    ]
+
+
+def test_collection_extent_cleared_with_items() -> None:
+    collection = _empty_collection()
+    collection.add_item(
+        _temporal_item("instant", instant=datetime(2020, 1, 1, tzinfo=tz.UTC))
+    )
+
+    collection.clear_items()
+
+    assert collection.extent.temporal.intervals == [[None, None]]
+
+
+def test_collection_extent_preserves_extra_fields_on_recompute() -> None:
+    collection = _empty_collection()
+    collection.extent.temporal.extra_fields = {"custom": "value"}
+    collection.extent.spatial.extra_fields = {"custom": "bbox"}
+    collection.extent.extra_fields = {"custom": "extent"}
+
+    collection.add_item(
+        _temporal_item("instant", instant=datetime(2020, 1, 1, tzinfo=tz.UTC))
+    )
+
+    assert collection.extent.temporal.extra_fields == {"custom": "value"}
+    assert collection.extent.spatial.extra_fields == {"custom": "bbox"}
+    assert collection.extent.extra_fields == {"custom": "extent"}
+
+
+def test_temporal_extent_assumes_utc_for_naive_datetimes() -> None:
+    item = _temporal_item("naive", instant=datetime(2020, 1, 1, 12, 0, 0))
+
+    extent = Extent.from_items([item])
+
+    assert extent.temporal.intervals == [
+        [
+            datetime(2020, 1, 1, 12, 0, 0, tzinfo=tz.UTC),
+            datetime(2020, 1, 1, 12, 0, 0, tzinfo=tz.UTC),
+        ]
+    ]

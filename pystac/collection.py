@@ -47,6 +47,79 @@ TemporalIntervalsLike = Union[
 ]
 
 
+def _ensure_utc(dt: datetime) -> datetime:
+    return dt if dt.tzinfo else dt.replace(tzinfo=tz.UTC)
+
+
+def _item_temporal_interval(item: "Item") -> Optional[list[Optional[datetime]]]:
+    """Derive the observed time interval of a single item.
+
+    An instant observation (``datetime`` with no start/end) is represented as a
+    degenerate interval ``[dt, dt]``. Returns ``None`` for items without any
+    temporal information registered.
+    """
+    start = item.common_metadata.start_datetime
+    end = item.common_metadata.end_datetime
+    if start is None and end is None:
+        if item.datetime is None:
+            return None
+        instant = _ensure_utc(item.datetime)
+        return [instant, instant]
+    return [
+        _ensure_utc(start) if start is not None else None,
+        _ensure_utc(end) if end is not None else None,
+    ]
+
+
+_NEG_INFINITY = datetime.min.replace(tzinfo=tz.UTC)
+_POS_INFINITY = datetime.max.replace(tzinfo=tz.UTC)
+
+
+def _merge_temporal_intervals(
+    intervals: Iterable[Optional[list[Optional[datetime]]]],
+) -> list[list[Optional[datetime]]]:
+    """Merge item observation intervals into the smallest set of disjoint,
+    chronologically ordered intervals that covers every observation.
+
+    Touching or overlapping intervals are merged so that a continuous span is
+    represented by a single interval, while gaps between observation seasons are
+    preserved. An explicit ``None`` endpoint means the interval is unbounded on
+    that side and is treated as negative/positive infinity, never as a registered
+    timestamp.
+    """
+    normalized: list[tuple[datetime, datetime]] = []
+    for interval in intervals:
+        if interval is None:
+            continue
+        start, end = interval
+        normalized.append(
+            (
+                start if start is not None else _NEG_INFINITY,
+                end if end is not None else _POS_INFINITY,
+            )
+        )
+
+    if not normalized:
+        return []
+
+    normalized.sort(key=lambda pair: pair[0])
+    merged: list[list[datetime]] = []
+    for start, end in normalized:
+        if merged and start <= merged[-1][1]:
+            if end > merged[-1][1]:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    return [
+        [
+            None if start is _NEG_INFINITY else start,
+            None if end is _POS_INFINITY else end,
+        ]
+        for start, end in merged
+    ]
+
+
 class SpatialExtent:
     """Describes the spatial extent of a Collection.
 
@@ -376,6 +449,15 @@ class Extent:
     ) -> Extent:
         """Create an Extent based on the datetimes and bboxes of a list of items.
 
+        The spatial extent is a single bbox that covers every item. The temporal
+        extent is derived from each item's instant (``datetime``) or interval
+        (``start_datetime``/``end_datetime``) observation: overlapping or
+        touching observations are merged into one interval, while gaps between
+        disjoint observation seasons are kept as separate intervals. An
+        observation with an explicit open endpoint is represented by ``None``;
+        items without any temporal information leave both endpoints
+        unregistered (``[None, None]``).
+
         Args:
             items : A list of items to derive the extent from.
             extra_fields : Optional dictionary containing additional top-level fields
@@ -391,39 +473,17 @@ class Extent:
             [float("-inf")],
             [float("-inf")],
         ]
-        datetimes: list[datetime] = []
-        starts: list[datetime] = []
-        ends: list[datetime] = []
+        item_intervals: list[Optional[list[Optional[datetime]]]] = []
 
         for item in items:
             if item.bbox is not None:
                 for i in range(0, 4):
                     bounds_values[i].append(item.bbox[i])
-            if item.datetime is not None:
-                datetimes.append(item.datetime)
-            if item.common_metadata.start_datetime is not None:
-                starts.append(item.common_metadata.start_datetime)
-            if item.common_metadata.end_datetime is not None:
-                ends.append(item.common_metadata.end_datetime)
+            item_intervals.append(_item_temporal_interval(item))
 
-        if not any(datetimes + starts):
-            start_timestamp = None
-        else:
-            start_timestamp = min(
-                [
-                    dt if dt.tzinfo else dt.replace(tzinfo=tz.UTC)
-                    for dt in datetimes + starts
-                ]
-            )
-        if not any(datetimes + ends):
-            end_timestamp = None
-        else:
-            end_timestamp = max(
-                [
-                    dt if dt.tzinfo else dt.replace(tzinfo=tz.UTC)
-                    for dt in datetimes + ends
-                ]
-            )
+        temporal_intervals = _merge_temporal_intervals(item_intervals)
+        if not temporal_intervals:
+            temporal_intervals = [[None, None]]
 
         spatial = SpatialExtent(
             [
@@ -435,7 +495,7 @@ class Extent:
                 ]
             ]
         )
-        temporal = TemporalExtent([[start_timestamp, end_timestamp]])
+        temporal = TemporalExtent(temporal_intervals)
 
         return Extent(spatial=spatial, temporal=temporal, extra_fields=extra_fields)
 
@@ -570,7 +630,16 @@ class Collection(Catalog, Assets):
     ) -> Link:
         link = super().add_item(item, title, strategy, set_parent)
         item.set_collection(self)
+        self.update_extent_from_items()
         return link
+
+    def remove_item(self, item_id: str) -> None:
+        super().remove_item(item_id)
+        self.update_extent_from_items()
+
+    def clear_items(self) -> None:
+        super().clear_items()
+        self.update_extent_from_items()
 
     def to_dict(
         self, include_self_link: bool = True, transform_hrefs: bool = True
@@ -731,10 +800,22 @@ class Collection(Catalog, Assets):
             raise e
 
     def update_extent_from_items(self) -> None:
+        """Recompute the extent from all currently linked items.
+
+        The spatial extent is collapsed to a single bbox. The temporal extent is
+        rebuilt from each item's instant or interval observation: overlapping or
+        touching observations are merged, gaps between disjoint observation
+        seasons are kept as separate intervals, and explicit open ranges are
+        distinguished from endpoints that are simply not registered. Any extra
+        fields configured on the existing extent objects are preserved.
         """
-        Update datetime and bbox based on all items to a single bbox and time window.
-        """
-        self.extent = Extent.from_items(self.get_items(recursive=True))
+        new_extent = Extent.from_items(
+            self.get_items(recursive=True),
+            extra_fields=deepcopy(self.extent.extra_fields),
+        )
+        new_extent.spatial.extra_fields = deepcopy(self.extent.spatial.extra_fields)
+        new_extent.temporal.extra_fields = deepcopy(self.extent.temporal.extra_fields)
+        self.extent = new_extent
 
     def full_copy(
         self, root: Catalog | None = None, parent: Catalog | None = None
