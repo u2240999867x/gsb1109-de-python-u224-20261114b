@@ -292,3 +292,49 @@ And encode the data.
     >>> encoded_raw, encoded = iso8583.encode(decoded, spec)
     >>> encoded_raw
     bytearray(b'02004000000000000000\x15\x12\x12\x00\x00\x00\x02\x12\x10')
+
+Diagnose Truncated Variable Fields
+----------------------------------
+A variable-length field has two places where a message can end early:
+inside the length header and inside the field data. The two failures
+produce different diagnostics.
+
+.. code-block:: python
+
+    >>> import copy
+    >>> import iso8583
+    >>> from iso8583.specs import default_ascii
+    >>> spec = copy.deepcopy(default_ascii)
+    >>> spec["2"].update(
+    ...     {"data_enc": "ascii", "len_enc": "ascii",
+    ...      "len_type": 2, "max_len": 6})
+    >>> prefix = b"0200" + b"4000000000000000"
+    >>> truncated_length = prefix + b"1"
+    >>> truncated_payload = prefix + b"06123"
+    >>> d1 = iso8583.decode_diagnostic(truncated_length, spec)
+    >>> d2 = iso8583.decode_diagnostic(truncated_payload, spec)
+    >>> d1.kind, d1.part, d1.completed_range
+    ('truncated_field_length', 'length', {'start': 0, 'end': 20})
+    >>> d2.kind, d2.part, d2.completed_range
+    ('truncated_field_data', 'data', {'start': 0, 'end': 22})
+    >>> d2.undetermined_range
+    {'start': 22, 'end': 25}
+
+Both diagnostics keep the successfully decoded type and bitmap entries
+in ``fields`` so prior normal fields can still be checked.
+
+Mark Secret Fields
+------------------
+Fields containing cardholder or credential data can be marked secret in
+the specification, or passed to :func:`iso8583.decode` explicitly.
+
+.. code-block:: python
+
+    >>> spec["2"]["sensitive"] = True
+    >>> s = prefix + b"06" + b"\xffSECRET"
+    >>> try:
+    ...     iso8583.decode(s, spec)
+    ... except iso8583.DecodeError as e:
+    ...     assert b"SECRET" not in bytes(e.s)
+    ...     assert "SECRET" not in str(e)
+    ...     assert e.diagnostic.fields["2"]["redacted"]

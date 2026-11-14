@@ -1,3 +1,13 @@
+Unreleased
+----------
+- Add ``iso8583.decode_diagnostic`` and ``DecodeError.diagnostic`` field-aware
+  diagnostics. Field length headers and field data are reported separately,
+  including the completed, error and undetermined byte ranges.
+- Support sensitive fields in specifications (``sensitive``, ``secret``,
+  ``masked``, etc.) or via ``decode(..., sensitive_fields=[...])``. Values of
+  sensitive fields are excluded from error messages, raw bytes, ``doc_dec``,
+  ``doc_enc`` and the serializable diagnostic.
+
 4.0.1 - 2025-08-28
 ------------------
 - Add support for tertiary bitmap as an extension of secondary bitmap.

@@ -66,12 +66,14 @@ __version__ = "4.0.1"
 __all__ = [
     "pp",
     "decode",
+    "decode_diagnostic",
+    "DecodeDiagnostic",
     "DecodeError",
     "encode",
     "EncodeError",
 ]
 __author__ = "Konstantin Novichikhin <konstantin.novichikhin@gmail.com>"
 
-from iso8583.decoder import DecodeError, decode
+from iso8583.decoder import DecodeDiagnostic, DecodeError, decode, decode_diagnostic
 from iso8583.encoder import EncodeError, encode
 from iso8583.tools import pp
