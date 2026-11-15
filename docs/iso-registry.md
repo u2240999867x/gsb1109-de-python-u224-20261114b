@@ -150,4 +150,30 @@ As an example, the United States of America, or Australia and others are divided
 
 *Note*: this function will return an empty `dict` if the code is unknown.
 
+## Resolve external codes with an effective-dated region map
+
+If your data mixes legacy codes — county codes that changed parents across administrative adjustments, or old province abbreviations — you can add a query layer on top of the registry with `EffectiveRegionMap`. Each correspondence record is effective for an interval of business dates (`start`/`end` are inclusive, `None` means open-ended) and may carry a direct `iso_code` rule and/or an explicit `parent` fallback.
+
+```python
+>>> from datetime import date
+>>> from workalendar.registry import EffectiveRegionMap
+>>> region_map = EffectiveRegionMap()  # uses the global registry by default
+>>> region_map.add('PA', iso_code='FR')  # legacy province abbreviation
+>>> region_map.add('C001', parent='PA', end=date(1999, 12, 31))
+>>> region_map.add('C001', parent='PB', start=date(2000, 1, 1))
+>>> region_map.add('PB', iso_code='DE')
+>>> region_map.resolve('C001', date(1995, 6, 1))
+'FR'
+>>> region_map.resolve('C001', date(2005, 6, 1))
+'DE'
+```
+
+Resolution rules:
+
+1. A direct mapping rule effective on the business date always wins; the parent chain is only consulted when the code lacks a direct rule for that date.
+2. Parent assignments are themselves effective-dated, so the lookup follows the parent chain *as of the business date*.
+3. If the same code is covered by several effective intervals yielding conflicting targets, the resolution is left for confirmation: `resolve()` raises `AmbiguousRegionMappingError`.
+
+Use `region_map.get_calendar(code, business_date)` to retrieve the calendar class directly (or `None` if the code cannot be resolved). Records are append-only and scoped to their own interval: backfilling a belonging record for a given period never changes the resolution of unrelated dates, and the underlying ISO registry is only read, never mutated.
+
 [Home](index.md) / [Basic usage](basic.md) / [Advanced usage](advanced.md) / [Class options](class-options.md) / [iCal Export](ical.md) / [Contributing](contributing.md)

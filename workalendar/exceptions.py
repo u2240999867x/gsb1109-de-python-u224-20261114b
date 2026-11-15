@@ -21,6 +21,13 @@ class ISORegistryError(CalendarError):
     """
 
 
+class AmbiguousRegionMappingError(CalendarError):
+    """
+    Raised when a region code matches several mapping records
+    for a given business date and must be left for confirmation.
+    """
+
+
 class ICalExportError(CalendarError):
     """
     Raised when the iCal export is impossible

@@ -3,6 +3,7 @@
 ## master (unreleased)
 
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
+- Added `EffectiveRegionMap`, an effective-dated region correspondence layer on top of the ISO registry: resolves external codes (legacy county codes, province abbreviations) by business date, with explicit parent fallback, parent-chain lookup only when no direct rule applies, and `AmbiguousRegionMappingError` when conflicting intervals must be left for confirmation.
 
 ## v17.0.0 (2023-01-01)
 
