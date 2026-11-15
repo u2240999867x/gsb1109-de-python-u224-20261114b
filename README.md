@@ -119,6 +119,30 @@ More examples in
 <a href="https://github.com/hugovk/lastfm-tools">hugovk/lastfm-tools</a> and
 [tests/](https://github.com/pylast/pylast/tree/main/tests).
 
+### Importing recent-tracks XML
+
+A recent-tracks page can start with a `nowplaying` entry that has no timestamp.
+`RecentTracksImporter` stores that entry as a provisional observation and keeps
+timestamped history separate:
+
+```python
+from pylast import RecentTracksImporter
+
+importer = RecentTracksImporter()
+importer.add_page(page_1_xml, observed_at=1700000100)
+importer.add_page(page_2_xml, observed_at=1700000200)
+
+importer.plays  # confirmed, timestamped plays
+for observation in importer.observations:
+    print(observation.status)  # "pending", "unique" or "ambiguous"
+    print(observation.possible_plays)
+```
+
+A now-playing observation only matches a play of the same artist and title
+inside its observation window. Two plays of the same track are kept apart by
+their start times, and a page that arrives late can turn a pending observation
+into a unique attribution or into two remaining possibilities.
+
 ## Testing
 
 The [tests/](https://github.com/pylast/pylast/tree/main/tests) directory contains

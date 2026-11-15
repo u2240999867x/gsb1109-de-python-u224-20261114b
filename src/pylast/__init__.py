@@ -37,6 +37,18 @@ from xml.dom import Node, minidom
 import httpx2 as httpx
 
 from ._version import __version__
+from .recent_tracks import (  # noqa: F401
+    OBSERVATION_AMBIGUOUS,
+    OBSERVATION_PENDING,
+    OBSERVATION_UNIQUE,
+    ConfirmedPlay,
+    NowPlayingObservation,
+    RecentTracksImporter,
+    RecentTracksPage,
+    TrackIdentity,
+    import_recent_tracks_pages,
+    parse_recent_tracks_page,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
