@@ -535,6 +535,18 @@ class Page(Container):
     def extract_words(self, **kwargs: Any) -> T_obj_list:
         return utils.extract_words(self.chars, **kwargs)
 
+    def extract_note_candidates(self, **kwargs: Any) -> T_obj_list:
+        """Pair standalone note markers with nearby body-text candidates."""
+        words = self.extract_words(return_chars=True, **kwargs)
+        markers = [word for word in words if word.get("is_note_marker")]
+        return [
+            {
+                **marker,
+                "candidates": utils.get_word_candidates(words, marker),
+            }
+            for marker in markers
+        ]
+
     def extract_text_lines(
         self, strip: bool = True, return_chars: bool = True, **kwargs: Any
     ) -> T_obj_list:

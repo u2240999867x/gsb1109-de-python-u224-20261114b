@@ -693,3 +693,116 @@ class Test(unittest.TestCase):
         assert utils.to_list(tuple(objs)) == objs
         assert utils.to_list((o for o in objs)) == objs
         assert utils.to_list(pd.DataFrame(objs)) == objs
+
+    def test_char_directions_from_matrix(self):
+        path = os.path.join(HERE, "pdfs/issue-848.pdf")
+        expected = {
+            0: ("ltr", "ttb"),
+            1: ("rtl", "ttb"),
+            2: ("rtl", "btt"),
+            3: ("ltr", "btt"),
+            4: ("ttb", "rtl"),
+            5: ("btt", "rtl"),
+            6: ("btt", "ltr"),
+            7: ("ttb", "ltr"),
+        }
+        with pdfplumber.open(path) as pdf:
+            for page_number, direction in expected.items():
+                chars = [
+                    c
+                    for c in pdf.pages[page_number].chars
+                    if not c["text"].isspace()
+                ]
+                assert utils.text.get_char_directions(chars[0]) == direction
+
+    def test_words_invariant_under_page_rotation(self):
+        rotated = os.path.join(HERE, "pdfs/nics-background-checks-2015-11-rotated.pdf")
+        upright = os.path.join(HERE, "pdfs/nics-background-checks-2015-11.pdf")
+        with pdfplumber.open(rotated) as pdf, pdfplumber.open(upright) as pdf_upright:
+            words = pdf.pages[0].extract_words(return_chars=True)
+            words_upright = pdf_upright.pages[0].extract_words(return_chars=True)
+
+        def glyphs(word_list):
+            return sorted(c["text"] for word in word_list for c in word["chars"])
+
+        assert len(words) == len(words_upright)
+        assert [w["text"] for w in words] == [w["text"] for w in words_upright]
+        assert glyphs(words) == glyphs(words_upright)
+        assert {w["direction"] for w in words} == {"ttb"}
+        assert {w["direction"] for w in words_upright} == {"ltr"}
+
+    def test_note_marker_next_to_formula(self):
+        def char(text, x0, top, size, matrix, **extra):
+            return {
+                "text": text,
+                "x0": x0,
+                "x1": x0 + size * 0.6,
+                "top": top,
+                "bottom": top + size,
+                "doctop": top,
+                "upright": True,
+                "height": size,
+                "width": size * 0.6,
+                "size": size,
+                "matrix": matrix,
+                "mcid": None,
+                "tag": None,
+                **extra,
+            }
+
+        content = [
+            char(t, 400 + i * 6, 100, 11, (1, 0, 0, 1, 400 + i * 6, 692))
+            for i, t in enumerate("H2CO3")
+        ]
+        stacked = [
+            char("5", 470, 101, 6, (1, 0, 0, 1, 470, 691)),
+            char("6", 470, 108, 6, (1, 0, 0, 1, 470, 684)),
+        ]
+        perpendicular = [
+            char("7", 480, 112, 3.3, (0, 1, -1, 0, 480, 680)),
+            char("8", 480, 115.3, 3.3, (0, 1, -1, 0, 480, 676.7)),
+        ]
+        words = utils.extract_words(content + stacked + perpendicular)
+        texts = [word["text"] for word in words]
+        assert "H2CO3" in texts
+        assert "H2CO35" not in texts
+        assert "5" in texts and "6" in texts
+        assert "87" in texts
+
+    def test_note_marker_respects_structure_tag(self):
+        marker = {
+            "text": "5",
+            "x0": 476.0,
+            "x1": 479.0,
+            "top": 102.0,
+            "bottom": 107.0,
+            "doctop": 102.0,
+            "upright": True,
+            "height": 5.0,
+            "width": 3.0,
+            "size": 5.0,
+            "matrix": (0, 1, -1, 0, 476, 688),
+            "mcid": 3,
+            "tag": "Span",
+        }
+        body = {
+            "text": "3",
+            "x0": 473.0,
+            "x1": 479.0,
+            "top": 100.0,
+            "bottom": 111.0,
+            "doctop": 100.0,
+            "upright": True,
+            "height": 11.0,
+            "width": 6.0,
+            "size": 11.0,
+            "matrix": (1, 0, 0, 1, 473, 685),
+            "mcid": 3,
+            "tag": "Span",
+        }
+        supported = utils.extract_words([body, marker])
+        assert not any(w.get("is_note_marker") for w in supported)
+
+        unsupported = {**marker, "mcid": None, "tag": None}
+        words = utils.extract_words([body, unsupported])
+        assert [w["text"] for w in words if w.get("is_note_marker")] == ["5"]
