@@ -22,6 +22,10 @@ History
   * **Improved** performance of flag emojis by ~5.6x, `PR #304`_.
   * **Improved** performance of `clip()`_, `wrap()`_, and `propagate_sgr()`_ by caching SGR state
     updates, `PR #315`_.
+  * **New** `sgr_events()`_, `iter_sgr_events()`_, and `SgrEventParser`_ convert SGR-styled text
+    into an event table of styled intervals with screen columns and byte offsets, using
+    caller-supplied foreground, background, and intensity mappings. `SgrEventParser`_ accepts
+    input in chunks, including a split escape sequence.
 
 0.9.4 *2026-10-24*
   * **Bugfix** Flag emojis were split by grapheme breaks when following control characters, like
@@ -390,6 +394,9 @@ https://www.cl.cam.ac.uk/~mgk25/ucs/wcwidth.c::
 .. _`clip()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.clip
 .. _`strip_sequences()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.strip_sequences
 .. _`propagate_sgr()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.propagate_sgr
+.. _`sgr_events()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.sgr_events
+.. _`iter_sgr_events()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_sgr_events
+.. _`SgrEventParser`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.SgrEventParser
 .. _`iter_sequences()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.iter_sequences
 .. _`list_versions()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.list_versions
 .. _`list_term_programs()`: https://wcwidth.readthedocs.io/en/latest/api.html#wcwidth.list_term_programs

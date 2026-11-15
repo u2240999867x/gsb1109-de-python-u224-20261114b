@@ -15,6 +15,7 @@ __lazy_modules__ = [
     "wcwidth.grapheme",
     "wcwidth.hyperlink",
     "wcwidth.linebreak",
+    "wcwidth.sgr_events",
     "wcwidth.sgr_state",
     "wcwidth.table_ambiguous",
     "wcwidth.table_linebreak",
@@ -45,6 +46,9 @@ from .table_zero import ZERO_WIDTH
 from .text_sizing import TextSizing, TextSizingParams
 from .table_ambiguous import AMBIGUOUS_EASTASIAN
 from .escape_sequences import iter_sequences
+from .sgr_events import (SgrEvent, SgrEventParser, iter_sgr_events, sgr_events,
+                         SgrSpan, SgrParser, iter_sgr_spans, parse_sgr_events,
+                         sgr_event_table, byte_offset_at)
 from .unicode_versions import list_versions
 
 # Optional C extension 'wcwidth._wcwidth_c', wrapping the C11 libwcwidth
@@ -114,6 +118,9 @@ __all__ = ('wcwidth', 'wcswidth', 'wcstwidth', 'width', 'iter_sequences', 'iter_
            'iter_graphemes_reverse', 'grapheme_boundary_before', 'iter_line_breaks',
            'ljust', 'rjust', 'center', 'wrap', 'clip', 'strip_sequences',
            'list_versions', 'list_term_programs', 'propagate_sgr',
+           'sgr_events', 'iter_sgr_events', 'SgrEvent', 'SgrEventParser',
+           'SgrSpan', 'SgrParser', 'iter_sgr_spans', 'parse_sgr_events',
+           'sgr_event_table', 'byte_offset_at',
            'Hyperlink', 'HyperlinkParams', 'TextSizing', 'TextSizingParams')
 
 # Version is stamped by code generation (bin/update-tables.py) from pyproject.toml.

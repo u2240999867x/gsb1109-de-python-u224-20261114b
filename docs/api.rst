@@ -36,6 +36,16 @@ requirements.txt or equivalent. Their signatures will never change.
 
 .. autofunction:: wcwidth.propagate_sgr
 
+.. autofunction:: wcwidth.sgr_events
+
+.. autofunction:: wcwidth.iter_sgr_events
+
+.. autoclass:: wcwidth.SgrEvent
+
+.. autoclass:: wcwidth.SgrEventParser
+
+.. autofunction:: wcwidth.byte_offset_at
+
 .. autofunction:: wcwidth.list_versions
 
 .. autofunction:: wcwidth.list_term_programs
