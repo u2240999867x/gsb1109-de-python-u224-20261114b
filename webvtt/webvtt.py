@@ -905,6 +905,41 @@ class WebVTT:
         """
         self.captions.sort(key=lambda caption: caption.start_in_milliseconds)
 
+    def corpus(
+            self,
+            modes: Iterable[typing.Any] | None = None
+            ) -> typing.Any:
+        """
+        Return the corpus of the words of the captions.
+
+        The corpus has a record for each word segment, with its text, the
+        cue it comes from and, for each mode, whether it is shown and the
+        declarations that decide it. Modes are `~webvtt.corpus.Mode`
+        instances or their configurations, and default to a ``normal`` mode
+        and a ``study`` mode whose cue text elements have the class
+        ``study``.
+
+        :param modes: the style modes, or None for the default ones
+        :returns: a `~webvtt.corpus.Corpus` instance
+
+        :raises ValueError: if a mode configuration cannot be used
+        """
+        from .corpus import Corpus, Mode, modes_from_config
+
+        if modes is None:
+            return Corpus(self)
+        if isinstance(modes, typing.Mapping):
+            return Corpus(self, modes_from_config(modes))
+        parsed: list[Mode] = []
+        for mode in modes:
+            if isinstance(mode, Mode):
+                parsed.append(mode)
+            elif isinstance(mode, typing.Mapping):
+                parsed.extend(modes_from_config(mode))
+            else:
+                raise TypeError(f'Invalid mode {mode!r}')
+        return Corpus(self, parsed)
+
     def validate(self) -> list[ValidationIssue]:
         """
         Return the problems found in the captions, in the order of captions.

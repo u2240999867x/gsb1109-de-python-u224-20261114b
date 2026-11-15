@@ -7,10 +7,16 @@ from . import segmenter
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
+from .corpus import Corpus, Mode, modes_from_config  # noqa
+from .css import (  # noqa
+    Declaration, Selector, parse_declarations, parse_selector, parse_styles
+    )
 
 __all__ = [
     'WebVTT', 'Caption', 'CueSettings', 'ParseIssue', 'Region', 'Style',
-    'ValidationIssue'
+    'ValidationIssue', 'Corpus', 'Mode', 'Declaration', 'Selector',
+    'parse_styles', 'parse_selector', 'parse_declarations',
+    'modes_from_config'
     ]
 
 read = WebVTT.read

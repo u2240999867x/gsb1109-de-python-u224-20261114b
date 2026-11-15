@@ -53,6 +53,27 @@ Writing captions
   # or get the content without writing a file
   print(vtt.content)
 
+Words and their visibility
+--------------------------
+
+``corpus()`` lists the words of the captions with whether each one is shown
+under each style mode, and the declarations that decide it. The default
+modes are ``normal`` and ``study``, whose cue text elements have the class
+``study``, so a style such as ``::cue(.study) { display: none; }`` can hide
+the words in the study mode only:
+
+.. code-block:: python
+
+  import webvtt
+
+  corpus = webvtt.read('captions.vtt').corpus()
+
+  for word in corpus:
+      print(word.text, word.visibility('normal'), word.visibility('study'))
+
+  # the text is kept as written, so hidden words can still be searched
+  corpus.search('answer')
+
 Segmenting for HLS
 ------------------
 

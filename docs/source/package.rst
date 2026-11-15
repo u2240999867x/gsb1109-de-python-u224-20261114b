@@ -14,6 +14,18 @@ webvtt.models
     :members:
     :inherited-members:
 
+webvtt.corpus
+-------------
+
+.. automodule:: webvtt.corpus
+    :members:
+
+webvtt.css
+----------
+
+.. automodule:: webvtt.css
+    :members:
+
 webvtt.segmenter
 ----------------
 

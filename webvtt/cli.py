@@ -5,6 +5,7 @@ import codecs
 import errno
 import fractions
 import io
+import json
 import math
 import os
 import pathlib
@@ -15,6 +16,7 @@ from collections.abc import Callable, Sequence
 from . import __version__, segmenter
 from .webvtt import WebVTT, _FORMAT_EXTENSIONS, _FORMATS
 from .models import Timestamp, _sync_mapping, _to_timestamp
+from .corpus import Corpus, modes_from_config
 from .errors import (
     MalformedFileError, MalformedCaptionError, MissingFilenameError
     )
@@ -208,6 +210,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     validate_command.set_defaults(run=_validate)
 
     _add_convert_command(commands)
+    _add_corpus_command(commands)
 
     args = arguments.parse_args(argv)
     _check_arguments(arguments, sync_command, args)
@@ -299,6 +302,59 @@ def _add_convert_command(commands: typing.Any) -> None:
     convert_command.set_defaults(run=_convert)
 
 
+def _add_corpus_command(commands: typing.Any) -> None:
+    """Add the corpus command."""
+    corpus_command = commands.add_parser(
+        'corpus',
+        help='list the words of the captions with their visibility',
+        description=(
+            'List the word segments of the captions, and for each style '
+            'mode whether they are shown and the declarations that decide '
+            'it. A mode is a style environment: its styles, the classes '
+            'that every cue text element has in it, and a voice or '
+            'language for the cues that have none. The default modes are '
+            'normal, and study, whose cue text elements have the class '
+            'study.'
+            ),
+        epilog=(
+            'The output is tab-separated values with a header, or JSON with '
+            '--json, written to standard output in UTF-8 or to the output '
+            'file. Each word has a row for each mode, so its text is in '
+            'every row and can be searched whatever the verdicts are. A '
+            'verdict is visible or hidden, or pending when a selector that '
+            'is not supported could change it, and the pending declarations '
+            'are listed for review. --modes reads the modes from a JSON '
+            'file, as a list of objects with a name and optional styles, '
+            'classes, voice, language and document_styles, or as an object '
+            'of names to their settings. Only the words that depend on a '
+            'mode change when it is different.'
+            )
+        )
+    _add_input_arguments(corpus_command)
+    corpus_command.add_argument(
+        '-o', '--output',
+        metavar='PATH',
+        help='output file, default: standard output'
+        )
+    corpus_command.add_argument(
+        '-m', '--modes',
+        metavar='PATH',
+        help=('JSON file with the modes, default: a normal mode and a study '
+              'mode with the class study')
+        )
+    corpus_command.add_argument(
+        '--json',
+        action='store_true',
+        help='write JSON instead of tab-separated values'
+        )
+    corpus_command.add_argument(
+        '--search',
+        metavar='TEXT',
+        help='only the words whose text has TEXT, ignoring case'
+        )
+    corpus_command.set_defaults(run=_corpus)
+
+
 def _check_arguments(
         parser: argparse.ArgumentParser,
         sync_parser: argparse.ArgumentParser,
@@ -375,6 +431,23 @@ def _convert(args: argparse.Namespace) -> None:
                      (args.output and _path_format(args.output)) or
                      'vtt')
     _write(_read(args), args.output, output_format, args.keep_formatting)
+
+
+def _corpus(args: argparse.Namespace) -> None:
+    """Run the corpus command."""
+    modes = None
+    if args.modes:
+        with open(args.modes, encoding='utf-8') as f:
+            config = json.load(f)
+        modes = modes_from_config(config)
+    corpus = Corpus(_read(args), modes)
+    records = (corpus.search(args.search)
+               if args.search is not None else None)
+    if args.json:
+        content = corpus.to_json(indent=2, records=records)
+    else:
+        content = corpus.to_tsv(records)
+    _write_corpus(content, args.output)
 
 
 def _input_format(args: argparse.Namespace) -> str:
@@ -542,6 +615,19 @@ def _write_stdout(content: str) -> None:
         # flushing it at exit
         os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
         sys.exit(1)
+
+
+def _write_corpus(content: str, output: str | None) -> None:
+    """
+    Write the corpus table to a file or standard output.
+
+    :param content: the table as tab-separated values or JSON
+    :param output: the output file, or None for standard output
+    """
+    if output:
+        pathlib.Path(output).write_text(content, encoding='utf-8')
+    else:
+        _write_stdout(content)
 
 
 def _offset(value: str) -> float:

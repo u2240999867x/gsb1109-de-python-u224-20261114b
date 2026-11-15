@@ -956,6 +956,119 @@ Updating styles:
     vtt.styles[0].lines[1] = '  color: papayawhip;'
 
 
+Word corpus
+-----------
+
+``corpus()`` returns a table of the words of the captions and whether each
+one is shown, under one or more style modes. A mode is a style environment:
+the styles it uses, the classes that every cue text element has in it, and a
+voice or language for the cues that have none. The default modes are
+``normal``, which uses the styles of the file, and ``study``, which gives
+every cue text element the class ``study``:
+
+.. code-block:: python
+
+    import webvtt
+
+    vtt = webvtt.read('captions.vtt')
+    corpus = vtt.corpus()
+
+    for word in corpus:
+        print(word.text, word.caption, word.line)
+        print(word.visibility('normal'), word.visibility('study'))
+
+    # search the text as written, whatever the verdicts are
+    corpus.search('caption')
+
+    # only the words shown in the normal mode
+    corpus.search('caption', mode='normal', visible=True)
+
+A word is a run of characters that are not whitespace, so a cue tag within a
+word splits it into two words, each with the classes, tag, voice and language
+of its own element. Each record keeps the text, the cue, the line, and the
+offsets of the word in the text of its cue, so the original text is always
+there to search, even when the word is hidden.
+
+The verdict is ``visible`` or ``hidden``, or ``pending`` when a selector that
+is not supported could change it. ``::cue``, and ``::cue()`` with a tag name,
+classes, ``[voice]`` or ``[lang]`` attributes and ``:lang()``, as in
+``::cue(c.loud[voice="Esme"])``, are read exactly. A selector with a
+pseudo-class or a combinator, such as ``::cue(.a:hover)`` or
+``::cue(c > b)``, cannot be matched for sure, so a word that it could change
+is ``pending`` and the declarations that may decide it are listed for
+review. A selector that cannot match a cue text element, such as
+``::cue(#id)``, does not change any word.
+
+The declarations that decide the verdict are kept with each result, with
+their selector, specificity and order, so it is clear which rule hid or
+showed a word:
+
+.. code-block:: python
+
+    import webvtt
+
+    vtt = webvtt.from_string("""WEBVTT
+
+    STYLE
+    ::cue(.answer) { display: none; }
+    ::cue(.study .answer) { display: inline; }
+
+    00:00:01.000 --> 00:00:02.000
+    Was ist <c.answer>Haus</c>?
+    """)
+    corpus = vtt.corpus()
+
+    answer = corpus.records[2]  # the word 'Haus', the third one
+    answer.text  # 'Haus'
+    answer.visibility('normal')  # 'hidden'
+    str(answer.results['normal'].declarations[0])
+    # '::cue(.answer): display: none'
+
+``display: none`` hides a word and its descendants, and cannot be undone by
+a descendant. ``visibility: hidden`` hides a word and its descendants until
+one sets ``visibility: visible``. Other properties, and CSS-wide keywords
+such as ``inherit``, do not change whether a word is shown.
+
+A mode can be given its own styles, which come after the styles of the file
+and win at the same specificity, and classes, which a selector can use to
+target it. Replacing a mode evaluates only that mode, and returns the words
+whose result changed, so changing a mode only changes the words that depend
+on it:
+
+.. code-block:: python
+
+    import webvtt
+    from webvtt import Mode
+
+    vtt = webvtt.read('captions.vtt')
+    corpus = vtt.corpus([
+        Mode('normal'),
+        Mode('study', classes=['study'],
+             styles=['::cue(.answer) { display: inline; }']),
+        ])
+
+    # only the words whose result in the study mode changes, from 1
+    changed = corpus.replace_mode(
+        Mode('study', classes=['study'],
+             styles=['::cue(.answer) { display: none; }'])
+        )
+
+Modes can also be read from a configuration, a list of objects with a name
+and optional ``styles``, ``classes``, ``voice``, ``language`` and
+``document_styles``, or an object of names to their settings:
+
+.. code-block:: python
+
+    import webvtt
+
+    vtt = webvtt.read('captions.vtt')
+    corpus = vtt.corpus({'normal': {},
+                         'study': {'classes': ['study']}})
+
+The table can be written with ``rows()``, ``to_json()`` or ``to_tsv()``, one
+row for each word and mode, with the text and the declarations in every row.
+
+
 WebVTT regions
 --------------
 

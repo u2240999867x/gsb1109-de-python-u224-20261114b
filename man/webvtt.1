@@ -30,7 +30,7 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 ..
 .TH "WEBVTT" "1" "Nov 08, 2026" "0.8.0" "webvtt-py"
 .SH NAME
-webvtt \- segment, shift, sync, validate and convert WebVTT, SRT and SBV captions
+webvtt \- segment, shift, sync, validate, convert and list the words of WebVTT, SRT and SBV captions
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
@@ -45,6 +45,8 @@ webvtt sync PATH (\-p FROM TO \-p FROM TO ... | \-\-fps FROM TO) [\-o OUTPUT]
 webvtt validate PATH [INPUT OPTIONS]
 webvtt convert PATH [\-o OUTPUT] [\-t FORMAT] [\-\-keep\-formatting]
                [INPUT OPTIONS]
+webvtt corpus PATH [\-o OUTPUT] [\-m MODES] [\-\-json] [\-\-search TEXT]
+              [INPUT OPTIONS]
 webvtt \-h
 webvtt \-\-version
 .EE
@@ -54,8 +56,9 @@ webvtt \-\-version
 .sp
 \fBwebvtt\fP segments a caption file for HTTP Live Streaming \%<https://\:datatracker\:.ietf\:.org/\:doc/\:html/\:draft-pantos-hls-rfc8216bis> (HLS),
 shifts or synchronizes the timestamps of its captions, checks it for
-problems, or converts it to another format. The file can be WebVTT, SRT or
-SBV, read in the format of its extension: \fB\&.srt\fP for SRT, \fB\&.sbv\fP for SBV
+problems, converts it to another format, or lists its words with whether
+they are shown. The file can be WebVTT, SRT or SBV, read in the format of
+its extension: \fB\&.srt\fP for SRT, \fB\&.sbv\fP for SBV
 and any other for WebVTT, unless \fB\-\-format\fP is given.
 .sp
 \fBsegment\fP splits the captions in \fBPATH\fP into segments of a target
@@ -111,6 +114,19 @@ standard output in UTF\-8 or to \fBOUTPUT\fP\&. Reading SRT turns its \fBfont\fP
 colours into cue classes with a \fBSTYLE\fP block and its \fB{\eanN}\fP
 positions into cue settings, and writing SRT writes the positions back.
 .sp
+\fBcorpus\fP lists the words of \fBPATH\fP and, for each style mode, whether
+each word is shown and the declarations that decide it. A mode is a style
+environment: its styles, the classes that every cue text element has in it,
+and a voice or language for the cues that have none. The default modes are
+\fBnormal\fP and \fBstudy\fP, whose cue text elements have the class \fBstudy\fP\&.
+The output is tab\-separated values with a header, or JSON with \fB\-\-json\fP,
+one row for each word and mode, to standard output in UTF\-8 or to
+\fBOUTPUT\fP\&. The verdict is \fBvisible\fP or \fBhidden\fP, or \fBpending\fP when a
+selector that is not supported, such as \fB::cue(.a:hover)\fP or
+\fB::cue(c > b)\fP, could change it, and the declarations that may decide it
+are listed. The text is in every row, so a word hidden in a mode can still
+be searched with \fB\-\-search\fP\&.
+.sp
 The commands can also be run as \fBpython \-m webvtt\fP, as in
 \fBpython \-m webvtt shift captions.vtt 2\fP\&.
 .sp
@@ -135,6 +151,9 @@ Check the captions at \fBPATH\fP for problems.
 .TP
 .B \fBconvert\fP
 Convert the captions at \fBPATH\fP to another format.
+.TP
+.B \fBcorpus\fP
+List the words at \fBPATH\fP with their visibility under each style mode.
 .UNINDENT
 .SH OPTIONS
 .INDENT 0.0
@@ -259,6 +278,26 @@ of the extension of \fBOUTPUT\fP, or \fBvtt\fP\&.
 When writing SRT, keep bold, italic and underline, and write the colours
 of the cue classes in the styles as \fBfont\fP tags, instead of removing
 the cue tags. SBV has no formatting.
+.UNINDENT
+.SS Corpus options
+.INDENT 0.0
+.TP
+.B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
+File where the table is written, in UTF\-8. Default: standard output.
+.TP
+.B \fB\-m PATH\fP, \fB\-\-modes PATH\fP
+JSON file with the modes: a list of objects with a \fBname\fP and optional
+\fBstyles\fP, \fBclasses\fP, \fBvoice\fP, \fBlanguage\fP and \fBdocument_styles\fP,
+or an object of names to their settings. A style is CSS text, or an
+object with its \fBtext\fP\&. Default: a \fBnormal\fP mode and a \fBstudy\fP
+mode whose cue text elements have the class \fBstudy\fP\&.
+.TP
+.B \fB\-\-json\fP
+Write JSON instead of tab\-separated values.
+.TP
+.B \fB\-\-search TEXT\fP
+Only the words whose text has \fBTEXT\fP, ignoring case. The words are
+searched as written, whatever the verdicts are.
 .UNINDENT
 .SH EXIT STATUS
 .INDENT 0.0
@@ -540,14 +579,36 @@ $ cat old.srt | webvtt convert \- \-f srt \-\-encoding cp1252 > new.vtt
 .EE
 .UNINDENT
 .UNINDENT
+.sp
+List the words of \fBcaptions.vtt\fP with their visibility in the default
+modes:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt corpus captions.vtt
+.EE
+.UNINDENT
+.UNINDENT
+.sp
+List only the words that have \fBHaus\fP, with the modes of a file, as JSON:
+.INDENT 0.0
+.INDENT 3.5
+.sp
+.EX
+$ webvtt corpus captions.vtt \-\-search Haus \-m modes.json \-\-json
+.EE
+.UNINDENT
+.UNINDENT
 .SH SEE ALSO
 .sp
 The same segmentation, shifting, synchronizing, validation and conversion
 are available from Python with \fBwebvtt.segment()\fP, \fBWebVTT.shift()\fP,
 \fBWebVTT.sync()\fP, \fBWebVTT.change_framerate()\fP, \fBWebVTT.validate()\fP,
 \fBwebvtt.from_srt()\fP, \fBwebvtt.from_sbv()\fP, \fBWebVTT.save_as_srt()\fP and
-\fBWebVTT.save_as_sbv()\fP, and \fBWebVTT.sort()\fP puts the captions in order
-of start time.
+\fBWebVTT.save_as_sbv()\fP, \fBWebVTT.sort()\fP puts the captions in order of
+start time, and \fBWebVTT.corpus()\fP returns the words with their
+visibility.
 .SH Author
 Alejandro Mendez
 .SH Copyright

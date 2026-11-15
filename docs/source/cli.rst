@@ -18,6 +18,8 @@ Synopsis
     webvtt validate PATH [INPUT OPTIONS]
     webvtt convert PATH [-o OUTPUT] [-t FORMAT] [--keep-formatting]
                    [INPUT OPTIONS]
+    webvtt corpus PATH [-o OUTPUT] [-m MODES] [--json] [--search TEXT]
+                  [INPUT OPTIONS]
     webvtt -h
     webvtt --version
 
@@ -26,9 +28,10 @@ Description
 
 ``webvtt`` segments a caption file for `HTTP Live Streaming`_ (HLS),
 shifts or synchronizes the timestamps of its captions, checks it for
-problems, or converts it to another format. The file can be WebVTT, SRT or
-SBV, read in the format of its extension: ``.srt`` for SRT, ``.sbv`` for SBV
-and any other for WebVTT, unless ``--format`` is given.
+problems, converts it to another format, or lists its words with whether
+they are shown. The file can be WebVTT, SRT or SBV, read in the format of
+its extension: ``.srt`` for SRT, ``.sbv`` for SBV and any other for WebVTT,
+unless ``--format`` is given.
 
 ``segment`` splits the captions in ``PATH`` into segments of a target
 duration. Each segment is written to ``OUTPUT`` as ``fileSequenceN.webvtt``,
@@ -85,6 +88,19 @@ standard output in UTF-8 or to ``OUTPUT``. Reading SRT turns its ``font``
 colours into cue classes with a ``STYLE`` block and its ``{\anN}``
 positions into cue settings, and writing SRT writes the positions back.
 
+``corpus`` lists the words of ``PATH`` and, for each style mode, whether
+each word is shown and the declarations that decide it. A mode is a style
+environment: its styles, the classes that every cue text element has in it,
+and a voice or language for the cues that have none. The default modes are
+``normal`` and ``study``, whose cue text elements have the class ``study``.
+The output is tab-separated values with a header, or JSON with ``--json``,
+one row for each word and mode, to standard output in UTF-8 or to
+``OUTPUT``. The verdict is ``visible`` or ``hidden``, or ``pending`` when a
+selector that is not supported, such as ``::cue(.a:hover)`` or
+``::cue(c > b)``, could change it, and the declarations that may decide it
+are listed. The text is in every row, so a word hidden in a mode can still
+be searched with ``--search``.
+
 The commands can also be run as ``python -m webvtt``, as in
 ``python -m webvtt shift captions.vtt 2``.
 
@@ -110,6 +126,9 @@ Commands
 
 ``convert``
     Convert the captions at ``PATH`` to another format.
+
+``corpus``
+    List the words at ``PATH`` with their visibility under each style mode.
 
 Options
 -------
@@ -234,6 +253,26 @@ Convert options
     When writing SRT, keep bold, italic and underline, and write the colours
     of the cue classes in the styles as ``font`` tags, instead of removing
     the cue tags. SBV has no formatting.
+
+Corpus options
+~~~~~~~~~~~~~~
+
+``-o OUTPUT``, ``--output OUTPUT``
+    File where the table is written, in UTF-8. Default: standard output.
+
+``-m PATH``, ``--modes PATH``
+    JSON file with the modes: a list of objects with a ``name`` and optional
+    ``styles``, ``classes``, ``voice``, ``language`` and ``document_styles``,
+    or an object of names to their settings. A style is CSS text, or an
+    object with its ``text``. Default: a ``normal`` mode and a ``study``
+    mode whose cue text elements have the class ``study``.
+
+``--json``
+    Write JSON instead of tab-separated values.
+
+``--search TEXT``
+    Only the words whose text has ``TEXT``, ignoring case. The words are
+    searched as written, whatever the verdicts are.
 
 Exit status
 -----------
@@ -441,6 +480,19 @@ Windows-1252 from standard input:
     $ webvtt convert captions.vtt -o captions.srt --keep-formatting
     $ cat old.srt | webvtt convert - -f srt --encoding cp1252 > new.vtt
 
+List the words of ``captions.vtt`` with their visibility in the default
+modes:
+
+::
+
+    $ webvtt corpus captions.vtt
+
+List only the words that have ``Haus``, with the modes of a file, as JSON:
+
+::
+
+    $ webvtt corpus captions.vtt --search Haus -m modes.json --json
+
 See also
 --------
 
@@ -448,5 +500,6 @@ The same segmentation, shifting, synchronizing, validation and conversion
 are available from Python with ``webvtt.segment()``, ``WebVTT.shift()``,
 ``WebVTT.sync()``, ``WebVTT.change_framerate()``, ``WebVTT.validate()``,
 ``webvtt.from_srt()``, ``webvtt.from_sbv()``, ``WebVTT.save_as_srt()`` and
-``WebVTT.save_as_sbv()``, and ``WebVTT.sort()`` puts the captions in order
-of start time.
+``WebVTT.save_as_sbv()``, ``WebVTT.sort()`` puts the captions in order of
+start time, and ``WebVTT.corpus()`` returns the words with their
+visibility.
