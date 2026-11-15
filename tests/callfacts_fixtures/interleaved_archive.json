@@ -1,0 +1,85 @@
+{
+  "archive": "local-test-001",
+  "chunks": [
+    {
+      "block_no": 1,
+      "stream_id": 1,
+      "direction": "request",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [[":method", "GET"], [":path", "/a"], [":scheme", "https"]]
+    },
+    {
+      "block_no": 2,
+      "stream_id": 3,
+      "direction": "request",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [[":method", "GET"], [":path", "/b"], [":scheme", "https"]]
+    },
+    {
+      "block_no": 3,
+      "stream_id": 1,
+      "direction": "response",
+      "end_headers": false,
+      "end_stream": false,
+      "headers": [[":status", "103"], ["link", "</style.css>; rel=preload"]]
+    },
+    {
+      "block_no": 4,
+      "stream_id": 3,
+      "direction": "response",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [[":status", "103"], ["link", "</b.css>; rel=preload"]]
+    },
+    {
+      "block_no": 5,
+      "stream_id": 1,
+      "direction": "response",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [["x-early-hint", "1"]]
+    },
+    {
+      "block_no": 6,
+      "stream_id": 3,
+      "direction": "response",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [[":status", "103"], ["link", "</b2.css>; rel=preload"]]
+    },
+    {
+      "block_no": 7,
+      "stream_id": 1,
+      "direction": "response",
+      "end_headers": false,
+      "end_stream": false,
+      "headers": [[":status", "200"]]
+    },
+    {
+      "block_no": 8,
+      "stream_id": 1,
+      "direction": "response",
+      "end_headers": true,
+      "end_stream": false,
+      "headers": [["content-type", "application/json"], ["content-length", "12"]]
+    },
+    {
+      "block_no": 9,
+      "stream_id": 1,
+      "direction": "response",
+      "end_headers": true,
+      "end_stream": true,
+      "headers": [["x-checksum", "deadbeef"]]
+    },
+    {
+      "block_no": 10,
+      "stream_id": 3,
+      "direction": "response",
+      "end_headers": false,
+      "end_stream": false,
+      "headers": [["x-pending", "never-terminated"]]
+    }
+  ]
+}
