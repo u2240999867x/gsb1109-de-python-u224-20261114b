@@ -701,6 +701,172 @@ def test_backslash_delim():
     assert serialize(tokens) == source
 
 
+def _component_signature(nodes):
+    """Reduce component values to comparable (type, value) tuples.
+
+    Whitespace and comments are ignored: minification may drop or insert
+    them without changing the declaration's meaning.
+
+    """
+    signature = []
+    for node in nodes:
+        if node.type in ('whitespace', 'comment'):
+            continue
+        elif node.type in ('() block', '[] block', '{} block'):
+            signature.append((node.type, _component_signature(node.content)))
+        elif node.type == 'function':
+            signature.append(
+                ('function', node.name, _component_signature(node.arguments)))
+        elif node.type in ('number', 'percentage'):
+            signature.append((node.type, node.value, node.int_value))
+        elif node.type == 'dimension':
+            signature.append(
+                ('dimension', node.value, node.int_value, node.unit))
+        elif node.type == 'unicode-range':
+            signature.append(('unicode-range', node.start, node.end))
+        elif node.type == 'hash':
+            signature.append(('hash', node.value, node.is_identifier))
+        elif node.type == 'error':
+            signature.append(('error', node.kind))
+        else:
+            signature.append((node.type, node.value))
+    return tuple(signature)
+
+
+def _minify(nodes):
+    """Drop removable tokens (whitespace, comments), recursing into blocks."""
+    minified = []
+    for node in nodes:
+        if node.type in ('whitespace', 'comment'):
+            continue
+        if node.type in ('() block', '[] block', '{} block'):
+            node.content = _minify(node.content)
+        elif node.type == 'function':
+            node.arguments = _minify(node.arguments)
+        minified.append(node)
+    return minified
+
+
+def test_serialize_dimensions_do_not_merge():
+    # Minifying 'margin: 1px 2px' must keep the two dimensions apart:
+    # '1px2px' would parse back as a single dimension with unit 'px2px',
+    # changing the collected property value.
+    declaration = parse_one_declaration('margin: 1px 2px')
+    values = _minify(declaration.value)
+    assert [token.type for token in values] == ['dimension', 'dimension']
+    serialized = serialize(values)
+    assert serialized == '1px/**/2px'
+    reparsed = parse_component_value_list(serialized, skip_comments=True)
+    assert _component_signature(reparsed) == _component_signature(values)
+    (merged,) = parse_component_value_list('1px2px')
+    assert merged.type == 'dimension'
+    assert merged.unit == 'px2px'
+
+
+@pytest.mark.parametrize(('first', 'second', 'separator'), [
+    # Pairs whose concatenation would re-tokenize as different tokens
+    # must keep the shortest usable separator: an empty comment.
+    ('1', 'px', '/**/'),      # number + ident → dimension
+    ('1', '2', '/**/'),       # number + number → number
+    ('1', '2%', '/**/'),      # number + percentage → percentage
+    ('1', '2px', '/**/'),     # number + dimension → dimension
+    ('1px', '2px', '/**/'),   # dimension + dimension → dimension
+    ('1px', 'solid', '/**/'),  # dimension + ident → dimension
+    ('a', 'b', '/**/'),       # ident + ident → ident
+    ('a', 'b()', '/**/'),     # ident + function → function
+    ('a', '-', '/**/'),       # ident + '-' → ident
+    ('a', '1', '/**/'),       # ident + number → ident
+    ('a', '()', '/**/'),      # ident + () block → function
+    ('#a', 'b', '/**/'),      # hash + ident → hash
+    ('@a', 'b', '/**/'),      # at-keyword + ident → at-keyword
+    ('#', 'a', '/**/'),       # '#' + ident → hash
+    ('@', 'a', '/**/'),       # '@' + ident → at-keyword
+    ('-', 'a', '/**/'),       # '-' + ident → ident
+    ('.', '1', '/**/'),       # '.' + number → number
+    ('+', '1', '/**/'),       # '+' + number → number
+    ('+', '2%', '/**/'),      # '+' + percentage → percentage
+    ('$', '=', '/**/'),       # '$' + '=' → '$=' literal
+    ('~', '=', '/**/'),       # '~' + '=' → '~=' literal
+    ('|', '=', '/**/'),       # '|' + '=' → '|=' literal
+    ('|', '|', '/**/'),       # '|' + '|' → '||' literal
+    ('/', '*', '/**/'),       # '/' + '*' → would start a comment
+    ('u+4', '?', '/**/'),     # unicode-range + '?' → unicode-range
+    ('u+0-7f', 'a', '/**/'),  # unicode-range + ident → unicode-range
+    ('\\\n', 'a', '\n'),      # backslash literal needs a newline
+    # Safe boundaries: no separator, removable comments are dropped.
+    ('1', ',', ''),
+    ('a', ':', ''),
+    ('1px', ';', ''),
+    ('a', ')', ''),
+    ('1', '+', ''),
+    ('a', '#b', ''),
+])
+def test_serialize_separator_per_token_pair(first, second, separator):
+    first_token, = (token for token in parse_component_value_list(first)
+                    if token.type != 'whitespace')
+    second_token, = (token for token in parse_component_value_list(second)
+                     if token.type != 'whitespace')
+    original = _component_signature([first_token, second_token])
+    serialized = serialize([first_token, second_token])
+    assert serialized == (
+        first_token.serialize() + separator + second_token.serialize())
+    reparsed = parse_component_value_list(serialized, skip_comments=True)
+    assert _component_signature(reparsed) == original
+    naive = first_token.serialize() + second_token.serialize()
+    naive_reparsed = parse_component_value_list(naive, skip_comments=True)
+    if separator:
+        # The separator is required: dropping it changes tokenization.
+        assert _component_signature(naive_reparsed) != original
+    else:
+        # No separator needed: concatenation re-tokenizes identically.
+        assert _component_signature(naive_reparsed) == original
+
+
+def test_serialize_custom_property_preserves_whitespace():
+    # Whitespace inside custom property values follows its own convention:
+    # it is significant and preserved verbatim, never minified away.
+    source = '--custom:  1\t 2  ;margin: 1px 2px;'
+    declarations = parse_declaration_list(source)
+    custom, _margin = declarations
+    assert [token.value for token in custom.value
+            if token.type == 'whitespace'] == ['  ', '\t ', '  ']
+    assert serialize(declarations) == source
+    reparsed, _ = parse_declaration_list(serialize(declarations))
+    assert [(token.type, token.value) for token in reparsed.value] == [
+        (token.type, token.value) for token in custom.value]
+
+
+@pytest.mark.parametrize('source', [
+    'margin: 1px 2px',
+    'padding: 1px 2px 3px 4px',
+    'width: calc(1px + 2%)',
+    'grid: [full-start] minmax(1px, 2fr) [full-end]',
+    'transform: translate(1px, 2px) scale(2)',
+    'background: url(a.png) no-repeat',
+    'content: "a  b"',
+    'font: 12px/1.5 serif',
+    'color: red !important',
+    '--custom:  1  2 ',
+])
+def test_minified_declaration_round_trip(source):
+    # Re-parsing the minified product must give nested blocks, token types
+    # and actual values equivalent to the original declaration.
+    declaration = parse_one_declaration(source)
+    if not declaration.name.startswith('--'):
+        declaration.value = _minify(declaration.value)
+    serialized = serialize([declaration])
+    reparsed, = parse_declaration_list(serialized)
+    assert reparsed.name == declaration.name
+    assert reparsed.important == declaration.important
+    if declaration.name.startswith('--'):
+        # Custom properties keep their whitespace, compare values exactly.
+        assert [(token.type, token.value) for token in reparsed.value] == [
+            (token.type, token.value) for token in declaration.value]
+    else:
+        assert _component_signature(reparsed.value) == (
+            _component_signature(declaration.value))
+
+
 def test_escape_in_at_rule():
     at_rule, = parse_rule_list('@\udca9')
     assert at_rule.type == 'at-rule'
