@@ -20,8 +20,10 @@ from pystac.errors import STACTypeError
 from pystac.layout import (
     BestPracticesLayoutStrategy,
     HrefLayoutStrategy,
+    LayoutPlan,
     LayoutTemplate,
 )
+from pystac.layout import plan_layout as _plan_layout
 from pystac.link import Link
 from pystac.serialization import (
     identify_stac_object,
@@ -842,6 +844,41 @@ class Catalog(STACObject):
 
         for fn in setter_funcs:
             fn()
+
+    def plan_layout(
+        self,
+        root_href: str,
+        strategy: HrefLayoutStrategy | None = None,
+        skip_unresolved: bool = False,
+    ) -> LayoutPlan:
+        """Performs an offline dry-run of :meth:`Catalog.normalize_hrefs`
+        with the given arguments, without mutating this catalog or writing
+        any files.
+
+        The returned :class:`~pystac.layout.LayoutPlan` lists, for every
+        object in this catalog tree, the HREF it would be published at, the
+        internal references that would be rewritten and the external
+        references that would be kept. Distinct objects computing to the same
+        HREF are reported via :attr:`LayoutPlan.conflicts
+        <pystac.layout.LayoutPlan.conflicts>` before anything is written.
+
+        Args:
+            root_href : The absolute HREF that all links will be planned
+                against.
+            strategy : The layout strategy to use in planning the HREFS
+                for this catalog. If not provided, defaults to
+                the layout strategy of the parent or root and falls back to
+                :class:`~pystac.layout.BestPracticesLayoutStrategy`
+            skip_unresolved : Skip unresolved links when walking the tree.
+                Defaults to False.
+
+        Returns:
+            LayoutPlan: The plan describing the target HREF and link rewrites
+            for every object in this catalog tree.
+        """
+        return _plan_layout(
+            self, root_href, strategy=strategy, skip_unresolved=skip_unresolved
+        )
 
     def generate_subcatalogs(
         self,

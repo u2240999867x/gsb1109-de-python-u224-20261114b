@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `Catalog.plan_layout` and `pystac.layout.plan_layout` for offline dry-runs of HREF normalization. The returned `LayoutPlan` lists each object's target HREF, the internal references that would be rewritten and the external references that would be kept, reports HREF conflicts between distinct objects via `LayoutPlan.conflicts`/`LayoutPlan.raise_for_conflicts` (raising the new `LayoutConflictError`), and can check a published catalog against the plan via `LayoutPlan.verify`
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed

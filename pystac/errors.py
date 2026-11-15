@@ -9,6 +9,16 @@ class TemplateError(Exception):
     pass
 
 
+class LayoutConflictError(Exception):
+    """Raised when a layout plan assigns the same HREF to two or more
+    distinct STAC objects.
+
+    See :class:`pystac.layout.LayoutPlan`.
+    """
+
+    pass
+
+
 class STACError(Exception):
     """A STACError is raised for errors relating to STAC, e.g. for
     invalid formats or trying to operate on a STAC that does not have

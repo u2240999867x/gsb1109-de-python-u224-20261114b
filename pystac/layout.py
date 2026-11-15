@@ -5,16 +5,19 @@ import posixpath
 import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from itertools import chain
 from string import Formatter
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Iterator, cast
 
 import pystac
-from pystac.utils import is_file_path
+from pystac.errors import LayoutConflictError
+from pystac.utils import is_absolute_href, is_file_path, make_absolute_href
 
 if TYPE_CHECKING:
     from pystac.catalog import Catalog
     from pystac.collection import Collection
     from pystac.item import Item
+    from pystac.link import Link
     from pystac.stac_object import STACObject
 
 
@@ -572,3 +575,318 @@ class APILayoutStrategy(HrefLayoutStrategy):
         item_root = posixpath.join(parent_dir, "items")
 
         return posixpath.join(item_root, f"{item.id}")
+
+
+class PlannedObject:
+    """The planned relocation of a single STAC object, as computed by
+    :func:`~pystac.layout.plan_layout`.
+
+    Attributes:
+        stac_object : The object that would be relocated.
+        target_href : The HREF the object would be published at.
+        internal_links : Links of the object whose targets are also part of
+            the plan. The HREFs of these links would be rewritten when the
+            layout is published.
+        external_links : Links of the object whose targets are not part of
+            the plan (e.g. links to absolute URLs, or to STAC objects outside
+            of the relocated tree). These links would be kept as-is.
+    """
+
+    stac_object: STACObject
+    """The object that would be relocated."""
+
+    target_href: str
+    """The HREF the object would be published at."""
+
+    internal_links: list[Link]
+    """Links to objects that are part of the same plan; these would be
+    rewritten to the planned HREFs of their targets."""
+
+    external_links: list[Link]
+    """Links to targets outside of the plan; these would be kept as-is."""
+
+    def __init__(
+        self,
+        stac_object: STACObject,
+        target_href: str,
+        internal_links: list[Link],
+        external_links: list[Link],
+    ) -> None:
+        self.stac_object = stac_object
+        self.target_href = target_href
+        self.internal_links = internal_links
+        self.external_links = external_links
+
+    def __repr__(self) -> str:
+        return f"<PlannedObject {self.stac_object!r} target_href={self.target_href}>"
+
+
+class LayoutPlan:
+    """The result of an offline dry-run of HREF normalization, as computed by
+    :func:`~pystac.layout.plan_layout`.
+
+    A plan lists, for every object in a catalog tree, the HREF it would be
+    published at, which of its links would be rewritten (internal references)
+    and which would be kept (external references). Computing a plan never
+    mutates the catalog and never writes any files, so conflicts - two
+    distinct objects mapping to the same HREF - can be inspected via
+    :attr:`~pystac.layout.LayoutPlan.conflicts` before anything is published.
+
+    Use :meth:`~pystac.layout.LayoutPlan.raise_for_conflicts` to guard a
+    subsequent publish, and :meth:`~pystac.layout.LayoutPlan.verify` to check
+    that a (re-read) catalog matches the relations predicted by the plan.
+    """
+
+    root_href: str
+    """The absolute HREF the plan was computed against."""
+
+    entries: list[PlannedObject]
+    """The planned relocation of every object in the catalog tree, in the
+    order the objects were visited."""
+
+    def __init__(self, root_href: str, entries: list[PlannedObject]) -> None:
+        self.root_href = root_href
+        self.entries = entries
+        self._target_by_id = {
+            id(entry.stac_object): entry.target_href for entry in entries
+        }
+
+    def __iter__(self) -> Iterator[PlannedObject]:
+        return iter(self.entries)
+
+    def __len__(self) -> int:
+        return len(self.entries)
+
+    def target_href_for(self, stac_object: STACObject) -> str | None:
+        """Returns the planned target HREF for the given object, or ``None``
+        if the object is not part of this plan."""
+        return self._target_by_id.get(id(stac_object))
+
+    @property
+    def conflicts(self) -> dict[str, list[STACObject]]:
+        """A mapping of target HREFs to the distinct STAC objects that would
+        be published at that HREF, for every HREF claimed by more than one
+        object. Multiple links pointing to the same object do not constitute
+        a conflict; only distinct objects computing to the same path do.
+        """
+        by_href: dict[str, list[STACObject]] = {}
+        for entry in self.entries:
+            objects = by_href.setdefault(entry.target_href, [])
+            if all(entry.stac_object is not obj for obj in objects):
+                objects.append(entry.stac_object)
+        return {href: objs for href, objs in by_href.items() if len(objs) > 1}
+
+    def raise_for_conflicts(self) -> None:
+        """Raises a :class:`~pystac.errors.LayoutConflictError` if this plan
+        would publish two or more distinct objects at the same HREF. Intended
+        to be called before any files are written.
+
+        Raises:
+            LayoutConflictError: If the plan contains conflicts.
+        """
+        conflicts = self.conflicts
+        if conflicts:
+            lines = ["Layout plan assigns the same HREF to multiple STAC objects:"]
+            for href, objects in sorted(conflicts.items()):
+                lines.append(f"  {href}: " + ", ".join(repr(obj) for obj in objects))
+            raise LayoutConflictError("\n".join(lines))
+
+    def expected_relations(self) -> dict[str, set[tuple[str, str]]]:
+        """Computes the link relations every object is expected to have once
+        the plan is published, keyed by the planned target HREF of each
+        object. Relations are ``(rel, absolute target HREF)`` pairs; internal
+        references are mapped to the planned HREFs of their targets, external
+        references are kept as-is. ``self`` links are not included, as the
+        planned target HREF itself is the expected self address.
+        """
+        relations: dict[str, set[tuple[str, str]]] = {}
+        for entry in self.entries:
+            rels: set[tuple[str, str]] = set()
+            for link in entry.internal_links:
+                target_href = self._target_by_id.get(id(link.target))
+                if target_href is not None:
+                    rels.add((str(link.rel), target_href))
+            for link in entry.external_links:
+                href = link.get_absolute_href()
+                if href is not None:
+                    rels.add((str(link.rel), href))
+            relations[entry.target_href] = rels
+        return relations
+
+    def verify(self, catalog: Catalog) -> list[str]:
+        """Compares the object relations of the given catalog against the
+        relations predicted by this plan.
+
+        This is intended to be used on a catalog that was published with a
+        conflict-free plan and read back from its new location: every planned
+        object must be found at its planned HREF, with exactly the internal
+        and external relations the plan predicted.
+
+        Args:
+            catalog : The catalog to check, e.g. one read back from the
+                location the plan was published to.
+
+        Returns:
+            list[str]: A list of mismatch descriptions. An empty list means
+            the catalog's object relations match the plan.
+        """
+        expected = self.expected_relations()
+        actual: dict[str, set[tuple[str, str]]] = {}
+        mismatches: list[str] = []
+        seen: set[int] = set()
+        for cat, children, items in catalog.walk():
+            for obj in chain([cat], children, items):
+                if id(obj) in seen:
+                    continue
+                seen.add(id(obj))
+                self_href = obj.get_self_href()
+                if self_href is None:
+                    mismatches.append(f"{obj!r} has no self HREF")
+                    continue
+                rels: set[tuple[str, str]] = set()
+                for link in obj.get_links():
+                    if link.rel == pystac.RelType.SELF:
+                        continue
+                    href = link.get_absolute_href()
+                    if href is not None:
+                        rels.add((str(link.rel), href))
+                actual[self_href] = rels
+
+        for href in sorted(expected):
+            if href not in actual:
+                mismatches.append(f"missing object at planned HREF {href}")
+            elif actual[href] != expected[href]:
+                missing = sorted(expected[href] - actual[href])
+                unexpected = sorted(actual[href] - expected[href])
+                mismatches.append(
+                    f"relations differ at {href}: "
+                    f"missing {missing}, unexpected {unexpected}"
+                )
+        for href in sorted(actual):
+            if href not in expected:
+                mismatches.append(f"unexpected object at {href}")
+        return mismatches
+
+
+def plan_layout(
+    catalog: Catalog,
+    root_href: str,
+    strategy: HrefLayoutStrategy | None = None,
+    skip_unresolved: bool = False,
+) -> LayoutPlan:
+    """Performs an offline dry-run of HREF normalization for the given
+    catalog, without mutating the catalog or writing any files.
+
+    The traversal and HREF computation mirror
+    :meth:`Catalog.normalize_hrefs <pystac.Catalog.normalize_hrefs>`: every
+    object in the tree is visited exactly once, even if several links point
+    to it, and the given (or the catalog's own) layout strategy is used to
+    compute the HREF each object would be published at. The resulting
+    :class:`~pystac.layout.LayoutPlan` records, for every object, its target
+    HREF, the internal references that would be rewritten and the external
+    references that would be kept. Distinct objects computing to the same
+    HREF are reported via :attr:`LayoutPlan.conflicts
+    <pystac.layout.LayoutPlan.conflicts>` so the conflict can be resolved
+    before anything is published.
+
+    Args:
+        catalog : The root of the catalog tree to plan the layout for.
+        root_href : The absolute HREF that all HREFs will be planned
+            against. Relative HREFs are made absolute against the current
+            working directory.
+        strategy : The layout strategy to use. If not provided, defaults to
+            the layout strategy of the catalog or its root, falling back to
+            :class:`~pystac.layout.BestPracticesLayoutStrategy`.
+        skip_unresolved : Skip unresolved links when walking the tree.
+            Defaults to False.
+
+    Returns:
+        LayoutPlan: The plan describing the target HREF and link rewrites
+        for every object in the catalog tree.
+    """
+    _strategy = catalog._get_strategy(strategy)
+
+    # Planning requires an absolute path
+    if not is_absolute_href(root_href):
+        root_href = make_absolute_href(root_href, os.getcwd(), start_is_dir=True)
+
+    planned: list[tuple[STACObject, str]] = []
+    planned_ids: set[int] = set()
+
+    def process_item(
+        item: Item, _root_href: str, is_root: bool, parent: Catalog | None
+    ) -> None:
+        if not skip_unresolved:
+            item.resolve_links()
+
+        # Abort as the intended parent is not the actual parent
+        # https://github.com/stac-utils/pystac/issues/1116
+        if parent is not None and item.get_parent() != parent:
+            return
+
+        # Several links may point to the same object; plan it only once
+        if id(item) in planned_ids:
+            return
+        planned_ids.add(id(item))
+
+        planned.append((item, _strategy.get_href(item, _root_href, is_root)))
+
+    def process_catalog(
+        cat: Catalog,
+        _root_href: str,
+        is_root: bool,
+        parent: Catalog | None = None,
+    ) -> None:
+        if not skip_unresolved:
+            cat.resolve_links()
+
+        # Abort as the intended parent is not the actual parent
+        # https://github.com/stac-utils/pystac/issues/1116
+        if parent is not None and cat.get_parent() != parent:
+            return
+
+        # Several links may point to the same object; plan it only once
+        if id(cat) in planned_ids:
+            return
+        planned_ids.add(id(cat))
+
+        new_self_href = _strategy.get_href(cat, _root_href, is_root)
+        planned.append((cat, new_self_href))
+
+        for link in cat.get_links():
+            if skip_unresolved and not link.is_resolved():
+                continue
+            elif link.rel == pystac.RelType.ITEM:
+                link.resolve_stac_object(root=catalog.get_root())
+                process_item(
+                    cast(pystac.Item, link.target), new_self_href, is_root, cat
+                )
+            elif link.rel == pystac.RelType.CHILD:
+                link.resolve_stac_object(root=catalog.get_root())
+                process_catalog(
+                    cast(pystac.Catalog, link.target),
+                    new_self_href,
+                    is_root=False,
+                    parent=cat,
+                )
+
+    process_catalog(catalog, root_href, is_root=True)
+
+    entries: list[PlannedObject] = []
+    for stac_object, target_href in planned:
+        internal_links: list[Link] = []
+        external_links: list[Link] = []
+        for link in stac_object.get_links():
+            if link.rel == pystac.RelType.SELF:
+                # The self link is the object's own address; it is
+                # represented by the planned target HREF.
+                continue
+            if link.is_resolved() and id(link.target) in planned_ids:
+                internal_links.append(link)
+            else:
+                external_links.append(link)
+        entries.append(
+            PlannedObject(stac_object, target_href, internal_links, external_links)
+        )
+
+    return LayoutPlan(root_href, entries)

@@ -1,6 +1,8 @@
+import os
 import posixpath
 import unittest
 from datetime import datetime, timedelta
+from tempfile import TemporaryDirectory
 from typing import Callable
 
 import pytest
@@ -530,3 +532,198 @@ class APILayoutStrategyTest(unittest.TestCase):
             item.self_href
             == "http://example.com/collections/test_collection/items/test_item"
         )
+
+
+class LayoutPlanTest(unittest.TestCase):
+    def _make_catalog(self) -> pystac.Catalog:
+        catalog = pystac.Catalog(id="imagery", description="test catalog")
+        collection = pystac.Collection(
+            id="landsat",
+            description="test collection",
+            extent=pystac.Extent(
+                spatial=pystac.SpatialExtent([[-180.0, -90.0, 180.0, 90.0]]),
+                temporal=pystac.TemporalExtent([[datetime(2020, 1, 1), None]]),
+            ),
+        )
+        catalog.add_child(collection)
+        for item_id, dt in [
+            ("a", datetime(2020, 1, 15, 12)),
+            ("b", datetime(2020, 2, 20, 12)),
+        ]:
+            item = pystac.Item(
+                id=item_id,
+                geometry=ARBITRARY_GEOM,
+                bbox=ARBITRARY_BBOX,
+                datetime=dt,
+                properties={"provider": "acme"},
+            )
+            item.add_link(pystac.Link("license", "https://example.com/license"))
+            collection.add_item(item)
+        return catalog
+
+    def test_plan_lists_targets_and_references(self) -> None:
+        catalog = self._make_catalog()
+        catalog.normalize_hrefs(
+            "http://example.com/by-provider",
+            strategy=TemplateLayoutStrategy(item_template="${provider}/${id}"),
+        )
+        collection = catalog.get_child("landsat")
+        assert collection is not None
+        item_a = next(collection.get_items("a"))
+        old_item_href = item_a.get_self_href()
+
+        plan = catalog.plan_layout(
+            "http://example.com/by-date",
+            strategy=TemplateLayoutStrategy(item_template="${date}/${id}"),
+        )
+
+        # every object gets a target address
+        self.assertEqual(
+            plan.target_href_for(catalog), "http://example.com/by-date/catalog.json"
+        )
+        self.assertEqual(
+            plan.target_href_for(collection),
+            "http://example.com/by-date/landsat/collection.json",
+        )
+        self.assertEqual(
+            plan.target_href_for(item_a),
+            "http://example.com/by-date/landsat/2020-01-15/a/a.json",
+        )
+        self.assertEqual(len(plan), 4)
+
+        # internal references to rewrite vs external references to keep
+        item_entry = next(e for e in plan if e.stac_object is item_a)
+        self.assertEqual(
+            {str(link.rel) for link in item_entry.internal_links},
+            {"root", "parent", "collection"},
+        )
+        self.assertEqual(
+            [str(link.rel) for link in item_entry.external_links], ["license"]
+        )
+        root_entry = next(e for e in plan if e.stac_object is catalog)
+        self.assertEqual(
+            {str(link.rel) for link in root_entry.internal_links}, {"root", "child"}
+        )
+        self.assertEqual(root_entry.external_links, [])
+
+        # the dry-run does not mutate the catalog
+        self.assertEqual(item_a.get_self_href(), old_item_href)
+        self.assertEqual(
+            catalog.get_self_href(), "http://example.com/by-provider/catalog.json"
+        )
+        self.assertEqual(plan.conflicts, {})
+
+    def test_plan_deduplicates_links_to_same_object(self) -> None:
+        catalog = self._make_catalog()
+        collection = catalog.get_child("landsat")
+        assert collection is not None
+        item_a = next(collection.get_items("a"))
+        item_b = next(collection.get_items("b"))
+
+        # two links pointing to the same object
+        catalog.add_link(pystac.Link.item(item_a))
+        item_b.add_link(pystac.Link.derived_from(item_a))
+
+        plan = catalog.plan_layout(
+            "http://example.com/by-date",
+            strategy=TemplateLayoutStrategy(item_template="${date}/${id}"),
+        )
+
+        entries = [e for e in plan if e.stac_object is item_a]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(plan.conflicts, {})
+        plan.raise_for_conflicts()
+
+        # the derived_from link is an internal reference that would be rewritten
+        item_b_entry = next(e for e in plan if e.stac_object is item_b)
+        derived = next(
+            link
+            for link in item_b_entry.internal_links
+            if str(link.rel) == "derived_from"
+        )
+        self.assertIs(derived.target, item_a)
+
+    def test_plan_detects_conflicting_paths_before_writing(self) -> None:
+        catalog = pystac.Catalog(id="imagery", description="test catalog")
+        collection = pystac.Collection(
+            id="landsat",
+            description="test collection",
+            extent=pystac.Extent(
+                spatial=pystac.SpatialExtent([[-180.0, -90.0, 180.0, 90.0]]),
+                temporal=pystac.TemporalExtent([[datetime(2020, 1, 1), None]]),
+            ),
+        )
+        catalog.add_child(collection)
+        for item_id in ["a", "b"]:
+            collection.add_item(
+                pystac.Item(
+                    id=item_id,
+                    geometry=ARBITRARY_GEOM,
+                    bbox=ARBITRARY_BBOX,
+                    datetime=datetime(2020, 1, 15, 12),
+                    properties={},
+                )
+            )
+
+        with TemporaryDirectory() as tmp_dir:
+            dest = os.path.join(tmp_dir, "published")
+            plan = catalog.plan_layout(
+                dest,
+                strategy=TemplateLayoutStrategy(item_template="${date}/scene.json"),
+            )
+
+            # two distinct objects compute to the same path
+            conflicts = plan.conflicts
+            self.assertEqual(len(conflicts), 1)
+            conflict_href, objects = next(iter(conflicts.items()))
+            self.assertEqual(
+                conflict_href,
+                os.path.join(dest, "landsat", "2020-01-15", "scene.json").replace(
+                    os.sep, "/"
+                ),
+            )
+            self.assertEqual({obj.id for obj in objects}, {"a", "b"})
+            with self.assertRaises(pystac.LayoutConflictError):
+                plan.raise_for_conflicts()
+
+            # the conflict is visible before anything is written
+            self.assertFalse(os.path.exists(dest))
+
+    def test_publish_matches_plan(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            old_dir = os.path.join(tmp_dir, "by-provider")
+            new_dir = os.path.join(tmp_dir, "by-date")
+
+            # publish the catalog in the old provider/imagery layout
+            catalog = self._make_catalog()
+            catalog.normalize_and_save(
+                old_dir,
+                catalog_type=pystac.CatalogType.SELF_CONTAINED,
+                strategy=TemplateLayoutStrategy(item_template="${provider}/${id}"),
+            )
+
+            # read it back and dry-run the relayout to date/imagery
+            reread = pystac.read_file(os.path.join(old_dir, "catalog.json"))
+            assert isinstance(reread, pystac.Catalog)
+            date_strategy = TemplateLayoutStrategy(item_template="${date}/${id}")
+            plan = reread.plan_layout(new_dir, strategy=date_strategy)
+            plan.raise_for_conflicts()
+
+            # publish with the conflict-free layout
+            reread.normalize_and_save(
+                new_dir,
+                catalog_type=pystac.CatalogType.SELF_CONTAINED,
+                strategy=date_strategy,
+            )
+
+            # re-read the published catalog; its object relations match the plan
+            published = pystac.read_file(os.path.join(new_dir, "catalog.json"))
+            assert isinstance(published, pystac.Catalog)
+            self.assertEqual(plan.verify(published), [])
+
+            # and the objects really are where the plan put them
+            published_item = next(published.get_items("a", recursive=True))
+            self.assertEqual(
+                published_item.get_self_href(),
+                os.path.join(new_dir, "landsat", "2020-01-15", "a", "a.json"),
+            )
