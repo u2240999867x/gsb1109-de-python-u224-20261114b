@@ -1,3 +1,26 @@
+from ..dimensions import (  # noqa: F401
+    build_dimension_index,
+    build_dimension_pairs,
+    build_index,
+    collect_dimension_texts,
+    dimension_index,
+    dimension_pairs,
+    extract_dimensions,
+    extract_dimension_index,
+    find,
+    find_dimensions,
+    index_dimensions,
+    link_dimensions,
+    match,
+    match_dimensions,
+    match_dimension_pairs,
+    parse_dimension,
+    parse_dimension_text,
+    segment_angle,
+    segment_endpoints,
+    text_angle,
+    text_direction,
+)
 from .clustering import cluster_list, cluster_objects, make_cluster_dict  # noqa: F401
 from .generic import to_list  # noqa: F401
 from .geometry import (  # noqa: F401

@@ -33,6 +33,12 @@ from pdfminer.psparser import PSLiteral
 from . import utils
 from ._typing import T_bbox, T_num, T_obj, T_obj_list
 from .container import Container
+from .dimensions import (
+    DEFAULT_ANGLE_TOLERANCE,
+    DEFAULT_DISTANCE_TOLERANCE,
+    build_dimension_index,
+    collect_dimension_texts,
+)
 from .structure import PDFStructTree, StructTreeMissing
 from .table import T_table_settings, Table, TableFinder, TableSettings
 from .utils import decode_text, resolve_all, resolve_and_decode
@@ -534,6 +540,133 @@ class Page(Container):
 
     def extract_words(self, **kwargs: Any) -> T_obj_list:
         return utils.extract_words(self.chars, **kwargs)
+
+    def build_dimension_index(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        angle_tolerance: T_num = DEFAULT_ANGLE_TOLERANCE,
+        distance_tolerance: T_num = DEFAULT_DISTANCE_TOLERANCE,
+        rotation: T_num = 0,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Match dimension annotations to line segments on this page.
+
+        By default, candidate lines are ``self.lines`` and candidate texts
+        are the page's dimension-like text lines. Pass ``lines`` or ``texts``
+        to provide pre-processed objects instead. See
+        :func:`pdfplumber.dimensions.build_dimension_index` for details.
+        """
+        if lines is None:
+            lines = self.lines
+        if texts is None:
+            texts = collect_dimension_texts(self)
+        return build_dimension_index(
+            lines,
+            texts,
+            angle_tolerance=angle_tolerance,
+            distance_tolerance=distance_tolerance,
+            rotation=rotation,
+            **kwargs,
+        )
+
+    def dimension_index_from_objects(
+        self,
+        candidate_types: Optional[List[str]] = None,
+        line_types: Optional[List[str]] = None,
+        text_types: Optional[List[str]] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Build a dimension index from page objects selected by type.
+
+        This is a convenience wrapper for pages where measurement segments are
+        represented as ``line``, ``rect``/``rect_edge``, or ``curve`` objects.
+        By default, candidate line segments come from ``self.lines`` plus the
+        edges of ``self.rects`` and ``self.curves``; texts come from dimension-like
+        text lines. Pass explicit type names or ``texts`` to override the source.
+        """
+        if line_types is None:
+            line_types = candidate_types or ["line", "rect", "curve"]
+        if text_types is None:
+            text_types = ["text"]
+
+        lines: T_obj_list = []
+        for kind in line_types:
+            if kind in ("line", "lines"):
+                lines.extend(self.lines)
+            elif kind in ("rect", "rects"):
+                lines.extend(self.rect_edges)
+            elif kind in ("rect_edge", "rect_edges"):
+                lines.extend(self.rect_edges)
+            elif kind in ("curve", "curves"):
+                lines.extend(self.curve_edges)
+            elif kind in ("curve_edge", "curve_edges"):
+                lines.extend(self.curve_edges)
+            elif kind in ("edge", "edges", "all"):
+                lines.extend(self.edges)
+            else:
+                raise ValueError(f"Unknown line object type: {kind}")
+
+        if texts is None and not (
+            "text" in text_types or "texts" in text_types
+        ):
+            raise ValueError(f"Unknown text object type(s): {text_types}")
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def find_dimensions(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def dimension_index(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def extract_dimensions(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def index_dimensions(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def match_dimensions(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
+
+    def link_dimensions(
+        self,
+        lines: Optional[T_obj_list] = None,
+        texts: Optional[T_obj_list] = None,
+        **kwargs: Any,
+    ) -> List[Dict[str, Any]]:
+        """Alias for :meth:`Page.build_dimension_index`."""
+        return self.build_dimension_index(lines=lines, texts=texts, **kwargs)
 
     def extract_text_lines(
         self, strip: bool = True, return_chars: bool = True, **kwargs: Any

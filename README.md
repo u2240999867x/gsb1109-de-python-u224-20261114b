@@ -19,6 +19,7 @@ __To report a bug__ or request a feature, please [file an issue](https://github.
 - [Python library](#python-library)
 - [Visual debugging](#visual-debugging)
 - [Extracting text](#extracting-text)
+- [Indexing dimensions](#indexing-dimensions)
 - [Extracting tables](#extracting-tables)
 - [Extracting form values](#extracting-form-values)
 - [Demonstrations](#demonstrations)
@@ -128,6 +129,7 @@ Additional methods are described in the sections below:
 
 - [Visual debugging](#visual-debugging)
 - [Extracting text](#extracting-text)
+- [Indexing dimensions](#indexing-dimensions)
 - [Extracting tables](#extracting-tables)
 
 ### Objects
@@ -352,6 +354,28 @@ Note: The methods above are built on Pillow's [`ImageDraw` methods](http://pillo
 |`.extract_text_lines(layout=False, strip=True, return_chars=True, **kwargs)`|*Experimental feature* that returns a list of dictionaries representing the lines of text on the page. The `strip` parameter works analogously to Python's `str.strip()` method, and returns `text` attributes without their surrounding whitespace. (Only relevant when `layout = True`.) Setting `return_chars` to `False` will exclude the individual character objects from the returned text-line dicts. The remaining `**kwargs` are those you would pass to `.extract_text(layout=True, ...)`.|
 |`.search(pattern, regex=True, case=True, main_group=0, return_groups=True, return_chars=True, layout=False, **kwargs)`|*Experimental feature* that allows you to search a page's text, returning a list of all instances that match the query. For each instance, the response dictionary object contains the matching text, any regex group matches, the bounding box coordinates, and the char objects themselves. `pattern` can be a compiled regular expression, an uncompiled regular expression, or a non-regex string. If `regex` is `False`, the pattern is treated as a non-regex string. If `case` is `False`, the search is performed in a case-insensitive manner. Setting `main_group` restricts the results to a specific regex group within the `pattern` (default of `0` means the entire match). Setting `return_groups` and/or `return_chars` to `False` will exclude the lists of the matched regex groups and/or characters from being added (as `"groups"` and `"chars"` to the return dicts). The `layout` parameter operates as it does for `.extract_text(...)`. The remaining `**kwargs` are those you would pass to `.extract_text(layout=True, ...)`. __Note__: Zero-width and all-whitespace matches are discarded, because they (generally) have no explicit position on the page. |
 |`.dedupe_chars(tolerance=1, extra_attrs=("fontname", "size"))`| Returns a version of the page with duplicate chars — those sharing the same text, positioning (within `tolerance` x/y), and `extra_attrs` as other characters — removed. (See [Issue #71](https://github.com/jsvine/pdfplumber/issues/71) to understand the motivation.)|
+
+## Indexing dimensions
+
+Engineering drawings often place a dimension value (for example, `250 mm`) alongside a measurement line. `Page.build_dimension_index(...)` places the text and the candidate lines in the same page coordinate system and returns a record for every compatible pair:
+
+```python
+with pdfplumber.open("drawing.pdf") as pdf:
+    page = pdf.pages[0]
+    for match in page.build_dimension_index(
+        angle_tolerance=1.5,
+        distance_tolerance=3,
+    ):
+        print(match["text"], match["value"], match["unit"], match["line_endpoints"])
+```
+
+A pair is compatible when the text reading axis and the line axis differ by no more than `angle_tolerance` degrees (the comparison is undirected, so a 180-degree flip still matches), the gap between the text box and the line is within `distance_tolerance` page units, and the text's center projects within the line's endpoint range (plus `distance_tolerance` slack). Text may be rotated or mirrored: `text_direction(...)` reads pdfplumber char matrices and explicit `angle`/`direction`/`vector` values, while `text_angle(...)` returns the resulting undirected angle.
+
+Use `page.dimension_index_from_objects(...)` when measurement segments are stored as `rect` edges or `curve` edges rather than plain `line` objects; it gathers candidate segments by object type before applying the same matching rules.
+
+When two parallel lines produce identical evidence, the index keeps a record for each one and reports the shared set in `record["group"]` (`record["lines"]` holds the actual line objects); it never silently deduplicates them. Records are keyed by `text_index` and `line_index`, so rotating the whole page preserves both the values and the text-to-line correspondence. Passing `lines=` and/or `texts=` to `build_dimension_index(...)` overrides the default `page.lines` and numeric text lines. `include_unmatched=True` retains text entries that found no line, `require_value=True` ignores text without a parsed numeric value, and `rotation=` pre-rotates both inputs into a common frame. The lower-level helpers are also available as `pdfplumber.dimensions.*` and `pdfplumber.utils.*`.
+
+Text lines without a unit are ignored by default, because page numbers and other plain integers would otherwise flood the index; pass `texts=` explicitly to index those. Dimension parsing handles metric and imperial units, fractions such as `1 1/2 in`, diameter/radius prefixes (`Ø`, `R`), and tolerances such as `50 ±0.2 mm`. `parse_dimension("50 ±0.2 mm")` returns a `(value, unit)` tuple with `.prefix`, `.kind`, and `.tolerance` attributes.
 
 ## Extracting tables
 
