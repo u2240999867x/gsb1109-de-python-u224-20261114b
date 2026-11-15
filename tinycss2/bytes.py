@@ -2,6 +2,47 @@ from webencodings import UTF8, decode, lookup
 
 from .parser import parse_stylesheet
 
+UTF16LE = lookup('utf-16le')
+UTF16BE = lookup('utf-16be')
+
+
+def _detect_bom(css_bytes):
+    """Return ``(bom_encoding, bom_length, payload)``.
+
+    Mirrors the BOM sniffing performed by :func:`webencodings.decode`:
+    a leading BOM is stripped from the payload and its encoding takes
+    precedence over every other encoding hint.
+
+    """
+    if css_bytes.startswith(b'\xFF\xFE'):
+        return UTF16LE, 2, css_bytes[2:]
+    if css_bytes.startswith(b'\xFE\xFF'):
+        return UTF16BE, 2, css_bytes[2:]
+    if css_bytes.startswith(b'\xEF\xBB\xBF'):
+        return UTF8, 3, css_bytes[3:]
+    return None, 0, css_bytes
+
+
+def _lookup_encoding(css_bytes, protocol_encoding, environment_encoding):
+    """Determine the fallback encoding, ignoring any BOM."""
+    if protocol_encoding:
+        fallback = lookup(protocol_encoding)
+        if fallback:
+            return fallback
+    if css_bytes.startswith(b'@charset "'):
+        # 10 is len(b'@charset "')
+        # 100 is arbitrary so that no encoding label is more than 100-10 bytes.
+        end_quote = css_bytes.find(b'"', 10, 100)
+        if end_quote != -1 and css_bytes.startswith(b'";', end_quote):
+            fallback = lookup(css_bytes[10:end_quote].decode('latin1'))
+            if fallback:
+                if fallback.name in ('utf-16be', 'utf-16le'):
+                    return UTF8
+                return fallback
+    if environment_encoding:
+        return environment_encoding
+    return UTF8
+
 
 def decode_stylesheet_bytes(css_bytes, protocol_encoding=None,
                             environment_encoding=None):
@@ -26,23 +67,9 @@ def decode_stylesheet_bytes(css_bytes, protocol_encoding=None,
 
     """
     # https://drafts.csswg.org/css-syntax/#the-input-byte-stream
-    if protocol_encoding:
-        fallback = lookup(protocol_encoding)
-        if fallback:
-            return decode(css_bytes, fallback)
-    if css_bytes.startswith(b'@charset "'):
-        # 10 is len(b'@charset "')
-        # 100 is arbitrary so that no encoding label is more than 100-10 bytes.
-        end_quote = css_bytes.find(b'"', 10, 100)
-        if end_quote != -1 and css_bytes.startswith(b'";', end_quote):
-            fallback = lookup(css_bytes[10:end_quote].decode('latin1'))
-            if fallback:
-                if fallback.name in ('utf-16be', 'utf-16le'):
-                    return decode(css_bytes, UTF8)
-                return decode(css_bytes, fallback)
-    if environment_encoding:
-        return decode(css_bytes, environment_encoding)
-    return decode(css_bytes, UTF8)
+    fallback = _lookup_encoding(
+        css_bytes, protocol_encoding, environment_encoding)
+    return decode(css_bytes, fallback)
 
 
 def parse_stylesheet_bytes(css_bytes, protocol_encoding=None,

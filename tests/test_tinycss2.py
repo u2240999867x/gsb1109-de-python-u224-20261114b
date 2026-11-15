@@ -7,7 +7,9 @@ import pytest
 from webencodings import Encoding, lookup
 
 from tinycss2 import (  # isort:skip
-    parse_blocks_contents, parse_component_value_list, parse_declaration_list,
+    ByteRange, MappingNote, SourceMap, locate_declaration_list_errors,
+    locate_stylesheet_declaration_errors, parse_blocks_contents,
+    parse_component_value_list, parse_declaration_list,
     parse_one_component_value, parse_one_declaration, parse_one_rule,
     parse_rule_list, parse_stylesheet, parse_stylesheet_bytes, serialize)
 from tinycss2.ast import (  # isort:skip
@@ -725,3 +727,166 @@ def test_escape_in_function_name():
     function, = parse_component_value_list('\\dddf()')
     assert function.type == 'function'
     assert function.name == '\udddf'
+
+
+def _only_block(tokens):
+    return next(token for token in tokens if token.type == '{} block')
+
+
+def test_source_map_basic_offsets():
+    raw = b'a { color: red }'
+    source_map = SourceMap.from_bytes(raw)
+    assert source_map.encoding.name == 'utf-8'
+    assert source_map.bom_length == 0
+    byte_range, notes = source_map.locate_range(4, 14)
+    assert byte_range == ByteRange(4, 14)
+    assert notes == ()
+    assert raw[byte_range.start:byte_range.end] == b'color: red'
+    with pytest.raises(ValueError):
+        source_map.locate_range(5, 5)
+
+
+def test_source_map_multibyte_and_bom():
+    text = 'x { bad z: 1; ok: épx }\n'
+    raw = b'\xff\xfe' + text.encode('utf-16-le')
+    source_map = SourceMap.from_bytes(raw)
+    assert source_map.encoding.name == 'utf-16le'
+    assert source_map.bom_length == 2
+    result, = locate_stylesheet_declaration_errors(source_map)
+    assert raw[result.error_byte_range.start:result.error_byte_range.end] == (
+        'bad z: 1'.encode('utf-16-le'))
+    assert raw[result.next_byte_range.start:result.next_byte_range.end] == (
+        'ok: épx'.encode('utf-16-le'))
+    assert result.error_byte_range.start == 2 + len(
+        'x { '.encode('utf-16-le'))
+    assert result.error_byte_range.end - result.error_byte_range.start == (
+        len('bad z: 1') * 2)
+    assert result.next_declaration.name == 'ok'
+
+
+def test_source_map_decode_replacement_and_crlf():
+    raw = (
+        b'a {\r\n'
+        b'  bad decl(;):\r\n 1;\r\n'
+        b'  good: \x81px;\r\n'
+        b'  tail: 2px\r\n'
+        b'}')
+    source_map = SourceMap.from_bytes(
+        raw, protocol_encoding='windows-1252')
+    assert source_map.encoding.name == 'windows-1252'
+    result, = locate_stylesheet_declaration_errors(source_map)
+    assert raw[result.error_byte_range.start:result.error_byte_range.end] == (
+        b'bad decl(;):\r\n 1')
+    assert raw[result.next_byte_range.start:result.next_byte_range.end] == (
+        b'good: \x81px')
+    assert source_map.normalized_text[
+        result.error_text_range[0]:result.error_text_range[1]] == (
+        'bad decl(;):\n 1')
+    note_keys = {(note.kind, note.detail) for note in result.notes}
+    assert ('newline-normalization', 'CRLF') in note_keys
+    assert ('decode-replacement', 'windows-1252') in note_keys
+    replacement_note = next(
+        note for note in result.notes
+        if note.kind == 'decode-replacement')
+    assert raw[replacement_note.byte_range.start:
+               replacement_note.byte_range.end] == b'\x81'
+
+
+def test_source_map_nul_and_bare_cr_without_recovery():
+    raw = b'a { bad\x00 z: 1; also bad: 2\r 3'
+    source_map = SourceMap.from_bytes(raw)
+    results = locate_stylesheet_declaration_errors(source_map)
+    assert len(results) == 2
+    first_notes = {(note.kind, note.detail) for note in results[0].notes}
+    second_notes = {(note.kind, note.detail) for note in results[1].notes}
+    assert ('nul-replacement', 'NUL') in first_notes
+    assert ('newline-normalization', 'CR') in second_notes
+    for result in results:
+        assert result.next_declaration is None
+        assert result.next_text_range is None
+        assert result.next_byte_range is None
+    assert raw[results[0].error_byte_range.start:
+               results[0].error_byte_range.end] == b'bad\x00 z: 1'
+    assert raw[results[1].error_byte_range.start:
+               results[1].error_byte_range.end] == b'also bad: 2\r 3'
+
+
+def test_source_map_parenthesized_semicolon_does_not_split():
+    raw = b'p { bad z: calc(1; 2); color: red }'
+    source_map = SourceMap.from_bytes(raw)
+    block = _only_block(
+        parse_component_value_list(source_map.normalized_text))
+    result, = locate_declaration_list_errors(
+        source_map, block.content, len(source_map.normalized_text) - 1)
+    assert raw[result.error_byte_range.start:result.error_byte_range.end] == (
+        b'bad z: calc(1; 2)')
+    assert raw[result.next_byte_range.start:result.next_byte_range.end] == (
+        b'color: red')
+    assert result.next_declaration.name == 'color'
+
+
+def test_source_map_at_rules_are_not_recovery_points():
+    raw = b'a { bad z: 1; @media print {}; color: red }'
+    result, = locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(raw))
+    assert result.next_declaration.name == 'color'
+    assert raw[result.next_byte_range.start:
+               result.next_byte_range.end] == b'color: red'
+
+
+def test_source_map_multiple_rejections_keep_following_intact():
+    raw = b'a { one z: 1; two z: 2; color: red }'
+    results = locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(raw))
+    assert len(results) == 2
+    for result in results:
+        assert result.next_declaration.name == 'color'
+        assert raw[result.next_byte_range.start:
+                   result.next_byte_range.end] == b'color: red'
+    assert raw[results[0].error_byte_range.start:
+               results[0].error_byte_range.end] == b'one z: 1'
+    assert raw[results[1].error_byte_range.start:
+               results[1].error_byte_range.end] == b'two z: 2'
+
+
+def test_source_map_nested_blocks_and_form_feed():
+    raw = b'@media screen {\r\f a { bad z: 1; color: red } }'
+    result, = locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(raw))
+    assert raw[result.error_byte_range.start:result.error_byte_range.end] == (
+        b'bad z: 1')
+    assert raw[result.next_byte_range.start:result.next_byte_range.end] == (
+        b'color: red')
+
+
+def test_source_map_no_errors():
+    assert locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(b'a { color: red }')) == []
+
+
+def test_source_map_truncated_multibyte_replacement():
+    raw = b'a { bad z: \xe2\x82; color: red }'
+    result, = locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(raw))
+    note = next(
+        note for note in result.notes
+        if note.kind == 'decode-replacement')
+    assert note.byte_range == ByteRange(11, 13)
+    assert raw[note.byte_range.start:note.byte_range.end] == b'\xe2\x82'
+
+
+def test_source_map_literal_replacement_character_is_not_decode_note():
+    raw = 'a { bad z: �; color: red }'.encode('utf-8')
+    result, = locate_stylesheet_declaration_errors(
+        SourceMap.from_bytes(raw))
+    assert all(
+        note.kind != 'decode-replacement' for note in result.notes)
+
+
+def test_source_map_mapping_note_equality():
+    note = MappingNote('newline-normalization', 'CRLF', ByteRange(2, 4))
+    assert note == MappingNote(
+        'newline-normalization', 'CRLF', ByteRange(2, 4))
+    assert note != MappingNote(
+        'newline-normalization', 'CR', ByteRange(2, 4))
+

@@ -38,6 +38,28 @@ serialization-related functions are available:
 .. autofunction:: serialize_identifier
 
 
+Source mapping
+--------------
+
+When CSS is parsed from bytes, the positions reported by AST nodes refer to
+the decoded and line-ending-normalized text, not to the original file. The
+source mapping helpers translate rejected declarations back to byte ranges in
+the original input and explain where the byte-to-text correspondence is
+many-to-one (replacement characters and normalized line endings).
+
+.. module:: tinycss2
+.. autoclass:: SourceMap
+   :members:
+.. autoclass:: ByteRange
+   :members:
+.. autoclass:: MappingNote
+   :members:
+.. autoclass:: RejectedDeclarationRange
+   :members:
+.. autofunction:: locate_declaration_list_errors
+.. autofunction:: locate_stylesheet_declaration_errors
+
+
 Color Level 3
 -------------
 

@@ -2,6 +2,17 @@ Changelog
 =========
 
 
+Unreleased
+----------
+
+* Add :class:`~tinycss2.SourceMap` and declaration error locating helpers
+  (:func:`~tinycss2.locate_declaration_list_errors` and
+  :func:`~tinycss2.locate_stylesheet_declaration_errors`) to map rejected
+  declarations and the first valid declaration after them back to byte ranges
+  in the original input, with notes for decode replacements, NUL replacements
+  and line ending normalization
+
+
 Version 1.5.1
 -------------
 
