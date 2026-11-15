@@ -1,0 +1,62 @@
+{
+  "chart_list": "chart_list.xml",
+  "description": "A later run where the same window gets a second revision. Both older sources remain in history.",
+  "baseline": [
+    {
+      "window": ["1672531200", "1673136000"],
+      "file": "w1_original.xml",
+      "response_id": "baseline-w1-original",
+      "retrieved_at": "2023-01-08T00:00:00Z"
+    },
+    {
+      "window": ["1672531200", "1673136000"],
+      "file": "w1_revision_a.xml",
+      "response_id": "incoming-w1-revision-a",
+      "retrieved_at": "2023-02-01T00:00:00Z"
+    },
+    {
+      "window": ["1673136000", "1673740800"],
+      "file": "w2_original.xml",
+      "response_id": "baseline-w2-original",
+      "retrieved_at": "2023-01-15T00:00:00Z"
+    },
+    {
+      "window": ["1673740800", "1674345600"],
+      "file": "w3_late.xml",
+      "response_id": "incoming-w3-late",
+      "retrieved_at": "2023-02-01T00:00:00Z"
+    },
+    {
+      "window": ["1674345600", "1674604800"],
+      "file": "w4_short.xml",
+      "response_id": "baseline-w4-short",
+      "retrieved_at": "2023-01-25T00:00:00Z"
+    },
+    {
+      "window": ["1674604800", "1674950400"],
+      "file": "w5_second_short.xml",
+      "response_id": "incoming-w5-short",
+      "retrieved_at": "2023-02-01T00:00:00Z"
+    },
+    {
+      "window": ["1674950400", "1675209600"],
+      "file": "w6_sealed_empty.xml",
+      "response_id": "incoming-w6-empty-chart",
+      "retrieved_at": "2023-02-01T00:00:00Z"
+    },
+    {
+      "window": ["1675209600", "1675814400"],
+      "file": "w7_new.xml",
+      "response_id": "incoming-w7-new",
+      "retrieved_at": "2023-02-01T00:00:00Z"
+    }
+  ],
+  "incoming": [
+    {
+      "window": ["1672531200", "1673136000"],
+      "file": "w1_revision_b.xml",
+      "response_id": "incoming-w1-revision-b",
+      "retrieved_at": "2023-02-08T00:00:00Z"
+    }
+  ]
+}

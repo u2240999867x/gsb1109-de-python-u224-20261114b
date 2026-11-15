@@ -119,6 +119,49 @@ More examples in
 <a href="https://github.com/hugovk/lastfm-tools">hugovk/lastfm-tools</a> and
 [tests/](https://github.com/pylast/pylast/tree/main/tests).
 
+## Weekly chart sync
+
+`pylast.weekly_sync` keeps an offline ledger for weekly chart collection. The
+server's `from`/`to` pairs are treated as half-open windows: `from` is included,
+`to` is excluded, so a play on a shared boundary belongs only to the later
+window. Windows are registered exactly as published, so delayed weeks and
+periods split into two short weeks are handled without assuming seven days.
+
+The ledger distinguishes a missing response from a genuinely empty week:
+
+- `pending` — no successful chart response yet, including an empty body or an
+  `lfm` error. The window is requested again.
+- `sealed` — a successful chart with at least one row.
+- `sealed_empty` — a successful chart document with zero rows.
+- `revised` / `revised_empty` — the current view replaced an older one. The old
+  snapshot and its `response_id` stay in `history`; only the current view is
+  replaced.
+
+`reconcile()` classifies each window as `fetch`, `retry`, `update`, or
+`unchanged` without changing state. `apply()` performs the proposed changes.
+Identical content from a new response id is not treated as a revision, and a
+response id reused with different content is rejected.
+
+A set of saved responses replays the whole decision process:
+
+```python
+import pylast.weekly_sync as weekly_sync
+
+result = weekly_sync.replay_manifest("tests/fixtures/weekly_chart_sync/manifest.json")
+print(result.ledger.report(result.plan))
+```
+
+Or from the command line:
+
+```sh
+python -m pylast.weekly_sync tests/fixtures/weekly_chart_sync/manifest.json
+python -m pylast.weekly_sync tests/fixtures/weekly_chart_sync/manifest.json --apply
+```
+
+The fixture manifest contains a baseline run, a late-published week, a pair of
+short weeks that meet at a boundary, an empty body, an identical response, a
+real revision, and a sealed empty week.
+
 ## Testing
 
 The [tests/](https://github.com/pylast/pylast/tree/main/tests) directory contains
