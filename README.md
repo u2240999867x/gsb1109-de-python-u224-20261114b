@@ -119,6 +119,37 @@ More examples in
 <a href="https://github.com/hugovk/lastfm-tools">hugovk/lastfm-tools</a> and
 [tests/](https://github.com/pylast/pylast/tree/main/tests).
 
+## Artist corrections and aliases
+
+`Artist.get_corrections()` returns each correction with its authoritative
+MusicBrainz id instead of a bare name, so artists that merely share a display
+name stay distinguishable. Feed periodic correction runs into an
+`ArtistAliasIndex` to keep a versioned, source-tagged history of rename
+relationships:
+
+```python
+index = pylast.ArtistAliasIndex()
+
+# Periodic run, e.g. the 2026.10 catalogue dump from the Last.fm correction API
+result = index.import_corrections(
+    network.get_artist("guns and roses"), source="lastfm", version="2026.10"
+)
+
+# Aliases are grouped by authoritative id, never merged on a shared display name
+index.aliases_for(result.records[0].artist_id)
+
+# Old scrobbles without an id can keep a few candidates pending verification
+index.add_pending_play("Mystery Band", ["mbid-a", "mbid-b"])
+index.pending_candidates("Mystery Band")
+
+# Querying an older catalogue version returns the name accepted back then
+index.canonical_name(artist_id, version="2026.09")
+```
+
+Correction chains that loop back to an earlier name are recorded in
+`index.cycles(...)` with their full evidence, and `import_many(...)` skips a
+failing artist while continuing with the rest of the batch.
+
 ## Testing
 
 The [tests/](https://github.com/pylast/pylast/tree/main/tests) directory contains

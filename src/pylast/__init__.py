@@ -31,6 +31,7 @@ import tempfile
 import time
 import typing
 import xml.parsers
+from collections import defaultdict
 from urllib.parse import quote_plus
 from xml.dom import Node, minidom
 
@@ -1147,6 +1148,32 @@ class LovedTrack(typing.NamedTuple):
     timestamp: str
 
 
+class Correction(typing.NamedTuple):
+    """One entry of an artist.getCorrection response."""
+
+    position: int
+    name: str
+    mbid: str | None
+    url: str | None
+
+
+class AliasRecord(typing.NamedTuple):
+    """A single alias relationship with its source and catalogue version."""
+
+    alias: str
+    artist_id: str | None
+    canonical_name: str
+    source: str
+    version: str
+
+
+class CorrectionImport(typing.NamedTuple):
+    """Result of importing one artist in a batch."""
+
+    records: list[AliasRecord]
+    cycle: tuple[str, ...] | None
+
+
 class _BaseObject:
     """An abstract webservices object."""
 
@@ -1762,7 +1789,19 @@ class Artist(_Taggable):
     def get_correction(self):
         """Returns the corrected artist name."""
 
-        return _extract(self._request(self.ws_prefix + ".getCorrection"), "name")
+        corrections = self.get_corrections()
+        return corrections[0].name if corrections else None
+
+    def get_corrections(self) -> list[Correction]:
+        """Returns the full list of artist corrections.
+
+        Each :class:`Correction` keeps the corrected name together with the
+        authoritative MusicBrainz id and the artist URL reported by the
+        network, so artists that merely share a display name stay separable.
+        """
+
+        doc = self._request(self.ws_prefix + ".getCorrection")
+        return _extract_corrections(doc)
 
     def get_playcount(self):
         """Returns the number of plays on the network."""
@@ -1888,6 +1927,226 @@ class Artist(_Taggable):
         artist = _url_safe(self.get_name())
 
         return self.network._get_url(domain_name, "artist") % {"artist": artist}
+
+
+class ArtistAliasIndex:
+    """Versioned, source-tagged registry of artist alias relationships.
+
+    Aliases are grouped under the *authoritative* artist id reported by the
+    network (its MusicBrainz id). Two distinct artists that happen to share a
+    display name are therefore never merged: only entries with the same id
+    belong together, and id-less data stays in a separate pending area.
+    """
+
+    def __init__(self) -> None:
+        # artist_id -> alias (lower-cased) -> version -> AliasRecord
+        self._records: dict[str, dict[str, dict[str, AliasRecord]]] = defaultdict(
+            lambda: defaultdict(dict)
+        )
+        # artist_id -> version -> name accepted as canonical at that version
+        self._canonical_at: dict[str, dict[str, str]] = defaultdict(dict)
+        # display name (lower-cased) -> list of candidate artist ids
+        self._pending: dict[str, list[str]] = defaultdict(list)
+        # raw evidence of every correction hop, keyed by (source, version)
+        self._evidence: dict[tuple[str, str], list[AliasRecord]] = defaultdict(list)
+        # correction chains that looped back, each as the ordered name chain
+        self._cycles: dict[tuple[str, str], list[tuple[str, ...]]] = defaultdict(list)
+
+    def add_alias(
+        self,
+        alias: str,
+        artist_id: str | None,
+        canonical_name: str,
+        source: str,
+        version: str,
+    ) -> AliasRecord | None:
+        """Record one alias relationship from a named source and version.
+
+        Returns the stored record, or ``None`` when a newer version already
+        superseded it. A record without an artist id is kept as a pending
+        candidate rather than merged into an authoritative artist file.
+        """
+
+        record = AliasRecord(alias, artist_id, canonical_name, source, version)
+
+        if artist_id is None:
+            self._add_pending_candidate(alias, canonical_name, source, version)
+            self._evidence[(source, version)].append(record)
+            return record
+
+        bucket = self._records[artist_id]
+        slot = bucket[alias.lower()]
+        if slot and _is_older_version(version, max(slot, key=_version_key)):
+            return None
+
+        slot[version] = record
+        bucket[alias.lower()] = slot
+        self._canonical_at[artist_id][version] = canonical_name
+        self._evidence[(source, version)].append(record)
+        return record
+
+    def add_pending_play(self, display_name: str, candidate_ids: list[str]) -> None:
+        """Attach a few candidate ids to an old play without an authoritative id."""
+
+        for candidate_id in candidate_ids:
+            if candidate_id not in self._pending[display_name.lower()]:
+                self._pending[display_name.lower()].append(candidate_id)
+
+    def import_corrections(
+        self,
+        artist: Artist,
+        source: str,
+        version: str,
+        max_hops: int = 10,
+    ) -> CorrectionImport:
+        """Follow an artist's correction chain and import every hop.
+
+        Each hop is stored with its source and version. If the chain loops
+        back to an earlier name the evidence collected so far is retained and
+        reported via the returned :class:`CorrectionImport`, while no further
+        requests are made for that artist so a batch can keep going.
+        """
+
+        records: list[AliasRecord] = []
+        chain: list[str] = [artist.get_name()]
+        seen: dict[str, int] = {artist.get_name().lower(): 0}
+        current = artist
+        cycle: tuple[str, ...] | None = None
+
+        for _ in range(max_hops):
+            corrections = current.get_corrections()
+
+            if not corrections:
+                break
+
+            correction = corrections[0]
+            record = self.add_alias(
+                alias=current.get_name(),
+                artist_id=correction.mbid,
+                canonical_name=correction.name,
+                source=source,
+                version=version,
+            )
+            if record is not None:
+                records.append(record)
+
+            chain.append(correction.name)
+            if correction.name.lower() == current.get_name().lower():
+                break
+
+            key = correction.name.lower()
+            if key in seen:
+                cycle = tuple(chain[seen[key] :])
+                self._cycles[(source, version)].append(cycle)
+                break
+
+            seen[key] = len(chain) - 1
+            current = Artist(correction.name, artist.network)
+
+        return CorrectionImport(records, cycle)
+
+    def import_many(
+        self,
+        artists: typing.Iterable[Artist],
+        source: str,
+        version: str,
+        max_hops: int = 10,
+    ) -> list[CorrectionImport]:
+        """Import a batch of artists, isolating failures per artist."""
+
+        results = []
+        for artist in artists:
+            try:
+                results.append(
+                    self.import_corrections(artist, source, version, max_hops)
+                )
+            except PyLastError as error:
+                logger.warning("Skipping %s: %s", artist.get_name(), error)
+        return results
+
+    def aliases_for(self, artist_id: str) -> list[str]:
+        """All display names ever recorded as aliases of one authoritative id."""
+
+        names: set[str] = set()
+        for slot in self._records.get(artist_id, {}).values():
+            names.update(record.alias for record in slot.values())
+        return sorted(names)
+
+    def canonical_name(self, artist_id: str, version: str | None = None) -> str | None:
+        """The name accepted for an artist, optionally as of a given version.
+
+        With ``version=None`` the newest known name is returned; otherwise the
+        newest catalogue version not newer than the requested one wins, so
+        querying last month's version yields the name accepted at that time.
+        """
+
+        versions = self._canonical_at.get(artist_id)
+        if not versions:
+            return None
+
+        eligible = {
+            record_version: name
+            for record_version, name in versions.items()
+            if version is None or not _is_older_version(version, record_version)
+        }
+        if not eligible:
+            return None
+
+        newest = max(eligible, key=_version_key)
+        return eligible[newest]
+
+    def lookup(
+        self, display_name: str, version: str | None = None
+    ) -> list[AliasRecord]:
+        """Find versioned alias records matching a display name."""
+
+        matches = []
+        for slots in self._records.values():
+            slot = slots.get(display_name.lower())
+            if slot is None:
+                continue
+            for record_version, record in slot.items():
+                if version is None or not _is_older_version(version, record_version):
+                    matches.append(record)
+        return matches
+
+    def pending_candidates(self, display_name: str) -> list[str]:
+        """Candidate artist ids attached to an id-less old play."""
+
+        return list(self._pending.get(display_name.lower(), []))
+
+    def evidence(self, source: str, version: str) -> list[AliasRecord]:
+        """All alias evidence collected from one source at one version."""
+
+        return list(self._evidence.get((source, version), []))
+
+    def cycles(self, source: str, version: str) -> list[tuple[str, ...]]:
+        """Correction chains that looped back on themselves."""
+
+        return list(self._cycles.get((source, version), []))
+
+    def _add_pending_candidate(
+        self, alias: str, canonical_name: str, source: str, version: str
+    ) -> None:
+        synthetic_id = f"pending:{canonical_name.lower()}@{source}/{version}"
+        if synthetic_id not in self._pending[alias.lower()]:
+            self._pending[alias.lower()].append(synthetic_id)
+
+
+def _is_older_version(candidate: str, reference: str) -> bool:
+    """True when candidate denotes an older catalogue version than reference."""
+
+    return _version_key(candidate) < _version_key(reference)
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    """Order dotted numeric versions (e.g. ``2026.10``) chronologically."""
+
+    parts: list[int] = []
+    for part in str(version).split("."):
+        digits = re.sub(r"\D", "", part)
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts)
 
 
 class Country(_BaseObject):
@@ -2881,6 +3140,22 @@ def _extract_all(node, name, limit_count=None):
         seq.append(_extract(node, name, i))
 
     return seq
+
+
+def _extract_corrections(doc: minidom.Document) -> list[Correction]:
+    """Parse every <correction> element of a getCorrection response."""
+
+    corrections: list[Correction] = []
+    for node in doc.getElementsByTagName("correction"):
+        position = int(node.getAttribute("index") or len(corrections))
+        artist_nodes = node.getElementsByTagName("artist")
+        artist_node = artist_nodes[0] if artist_nodes else node
+        name = _extract(artist_node, "name")
+        mbid = _extract(artist_node, "mbid") or None
+        url = _extract(artist_node, "url") or None
+        corrections.append(Correction(position, name, mbid, url))
+
+    return corrections
 
 
 def _extract_top_artists(doc: minidom.Document, network) -> list[TopItem]:
