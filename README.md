@@ -181,3 +181,28 @@ pytest --log-cli-level info -k test_album_search_images
 
 To also see data returned from the API, use `level=logging.DEBUG` or
 `--log-cli-level debug` instead.
+
+## Search journals
+
+Search pagination can be recorded so a partially collected search can be resumed
+in another process. Every page keeps the original filters, the query the service
+actually interpreted, the raw response and the original response order:
+
+```python
+network.enable_search_journal("search.jsonl")
+search = network.search_for_track("Nirvana", "Smells Like Teen Spirit")
+search.get_next_page()
+search.get_next_page()
+
+# Later, in another process:
+network.enable_search_journal("search.jsonl")
+search = network.search_for_track("Nirvana", "Smells Like Teen Spirit")
+search.get_next_page()  # continues after the last recorded page
+search.describe()       # which pages came from the original query or a correction
+```
+
+Pages are keyed by the original filters and by whether they belong to the
+original query or follow a correction suggestion, so the same normalised words
+from different filters never share a page pointer, and retrying a recorded page
+does not skip the next one. `search.follow_suggestion(terms)` starts a separate
+correction sequence while `search.recover()` reports both.

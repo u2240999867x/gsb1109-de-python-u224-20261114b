@@ -37,6 +37,22 @@ from xml.dom import Node, minidom
 import httpx2 as httpx
 
 from ._version import __version__
+from .search_journal import (
+    ORIGIN_CORRECTION,
+    ORIGIN_ORIGINAL,
+    SearchJournal,
+    SearchPage,
+    SearchQuery,
+    SearchRecovery,
+    SearchResult,
+)
+from .search_journal import SearchBranch as _SearchBranch
+from .search_journal import SearchJournalError as _SearchJournalError
+from .search_journal import SearchSequence as _SearchSequence
+
+SearchBranch = _SearchBranch
+SearchJournalError = _SearchJournalError
+SearchSequence = _SearchSequence
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
@@ -202,6 +218,7 @@ class _Network:
         self.urls = urls
         self.proxy = None
         self.cache_backend: _ShelfCacheBackend | None = None
+        self.search_journal: SearchJournal | None = None
         self.last_call_time: float = 0.0
         self.limit_rate = False
 
@@ -473,25 +490,45 @@ class _Network:
         """Returns True if caching is enabled."""
         return self.cache_backend is not None
 
-    def search_for_album(self, album_name: str) -> AlbumSearch:
+    def enable_search_journal(self, file_path=None) -> None:
+        """Records every search page in a durable, resumable journal.
+
+        * file_path: An append-only journal file.  If None, a temporary file
+        is created.  The journal can be reopened later to continue a search.
+        """
+        self.search_journal = SearchJournal(
+            file_path or _temp_journal_path()
+        )
+
+    def disable_search_journal(self) -> None:
+        """Stops recording search pages on this network."""
+        self.search_journal = None
+
+    def is_search_journal_enabled(self) -> bool:
+        """Returns True if search pages are recorded on this network."""
+        return self.search_journal is not None
+
+    def search_for_album(self, album_name: str, journal=None) -> AlbumSearch:
         """Searches for an album by its name. Returns an AlbumSearch object.
         Use get_next_page() to retrieve sequences of results."""
 
-        return AlbumSearch(album_name, self)
+        return AlbumSearch(album_name, self, journal=journal)
 
-    def search_for_artist(self, artist_name: str) -> ArtistSearch:
+    def search_for_artist(self, artist_name: str, journal=None) -> ArtistSearch:
         """Searches for an artist by its name. Returns an ArtistSearch object.
         Use get_next_page() to retrieve sequences of results."""
 
-        return ArtistSearch(artist_name, self)
+        return ArtistSearch(artist_name, self, journal=journal)
 
-    def search_for_track(self, artist_name: str, track_name: str) -> TrackSearch:
+    def search_for_track(
+        self, artist_name: str, track_name: str, journal=None
+    ) -> TrackSearch:
         """Searches for a track by its name and its artist. Set artist to an
         empty string if not available.
         Returns a TrackSearch object.
         Use get_next_page() to retrieve sequences of results."""
 
-        return TrackSearch(artist_name, track_name, self)
+        return TrackSearch(artist_name, track_name, self, journal=journal)
 
     def get_track_by_mbid(self, mbid: str) -> Track:
         """Looks up a track by its MusicBrainz ID"""
@@ -978,12 +1015,15 @@ class _Request:
     def execute(self, cacheable: bool = False) -> minidom.Document:
         """Returns the XML DOM response of the POST Request from the server"""
 
-        if self.network.is_caching_enabled() and cacheable:
-            response = self._get_cached_response()
-        else:
-            response = self._download_response()
+        return _parse_response(self.execute_raw(cacheable))
 
-        return _parse_response(response)
+    def execute_raw(self, cacheable: bool = False) -> str:
+        """Returns the raw response body of the POST Request."""
+
+        if self.network.is_caching_enabled() and cacheable:
+            return self._get_cached_response()
+
+        return self._download_response()
 
     def _check_response_for_errors(self, response):
         """Checks the response for errors and raises one if any exists."""
@@ -2647,16 +2687,112 @@ class AuthenticatedUser(User):
 class _Search(_BaseObject):
     """An abstract class. Use one of its derivatives."""
 
-    def __init__(self, ws_prefix, search_terms, network) -> None:
+    _result_tag = ""
+    _requested_term_key = ""
+
+    def __init__(
+        self,
+        ws_prefix,
+        search_terms,
+        network,
+        journal=None,
+        origin: str = ORIGIN_ORIGINAL,
+        requested_terms: str | None = None,
+    ) -> None:
         super().__init__(network, ws_prefix)
 
         self._ws_prefix = ws_prefix
-        self.search_terms = search_terms
+        self.search_terms = dict(search_terms)
+        self._origin = origin
+        self._requested_terms = (
+            requested_terms or self._default_requested_terms()
+        )
 
-        self._last_page_index = 0
+        self._explicit_journal = journal is not None
+        if journal is None:
+            journal = getattr(network, "search_journal", None)
+        elif isinstance(journal, (str, os.PathLike)):
+            journal = SearchJournal(journal)
+        self._journal = journal if journal is not None else SearchJournal()
+
+    @property
+    def journal(self) -> SearchJournal:
+        """The journal recording this search's pages."""
+
+        if not self._explicit_journal:
+            network_journal = getattr(self.network, "search_journal", None)
+            if network_journal is not None and network_journal is not self._journal:
+                # Adopt a journal enabled on the network after this search
+                # object was created, keeping the temporary journal's pages.
+                network_journal.merge(self._journal)
+                self._journal = network_journal
+        return self._journal
+
+    @journal.setter
+    def journal(self, value) -> None:
+        if isinstance(value, (str, os.PathLike)):
+            value = SearchJournal(value)
+        self._journal = value
+        self._explicit_journal = True
+
+    @property
+    def search_filters(self) -> dict[str, str]:
+        """The original input filters, independent of any normalisation."""
+
+        return dict(self.search_terms)
+
+    @property
+    def origin(self) -> str:
+        """Whether this search follows the original query or a correction."""
+
+        return self._origin
+
+    @property
+    def requested_terms(self) -> str | None:
+        """The words sent to the service for this search sequence."""
+
+        return self._requested_terms
+
+    def _default_requested_terms(self) -> str | None:
+        return self.search_terms.get(self._requested_term_key)
 
     def _get_params(self) -> dict:
-        return dict(self.search_terms)
+        params = dict(self.search_terms)
+        if self._requested_terms is not None and self._requested_term_key:
+            params[self._requested_term_key] = self._requested_terms
+        return params
+
+    def attach_journal(self, journal) -> None:
+        """Use a shared or durable journal for subsequent pages."""
+
+        self.journal = journal
+
+    def follow_suggestion(self, search_terms: str) -> _Search:
+        """Return a search for a suggested correction.
+
+        The derived search keeps the original filters, so recovery can show the
+        original pages and the correction pages together, but it has its own
+        page pointer and never consumes a page of the original sequence.
+        """
+
+        if not search_terms or not search_terms.strip():
+            msg = "A correction suggestion needs search terms"
+            raise ValueError(msg)
+        return self._derive(ORIGIN_CORRECTION, search_terms)
+
+    def as_original(self) -> _Search:
+        """Return the original-query view of the same recorded search."""
+
+        return self._derive(ORIGIN_ORIGINAL, self._default_requested_terms())
+
+    def _derive(self, origin: str, requested_terms: str | None) -> _Search:
+        derived = type(self).__new__(type(self))
+        derived.__dict__.update(self.__dict__)
+        derived._origin = origin
+        derived._requested_terms = requested_terms
+        # Share the exact journal instance the parent currently uses.
+        derived._journal = self.journal
+        return derived
 
     def get_total_result_count(self):
         """Returns the total count of all the results."""
@@ -2665,64 +2801,264 @@ class _Search(_BaseObject):
 
         return _extract(doc, "totalResults")
 
-    def _retrieve_page(self, page_index: int) -> minidom.Element:
-        """Returns the node of matches to be processed"""
+    def get_next_page(self) -> list:
+        """Returns the next unrecorded page of results."""
+
+        page_index = self.journal.next_page(
+            self._ws_prefix,
+            self.search_filters,
+            self._origin,
+            self._requested_terms,
+        )
+        return self.get_page(page_index)
+
+    def get_page(self, page_index: int) -> list:
+        """Returns one page of results, reusing a recorded response.
+
+        Recording is idempotent and the next page is derived from the highest
+        recorded page number.  Retrying a page that is already recorded
+        therefore returns the stored page and does not skip the next one.
+        """
+
+        if page_index < 1:
+            msg = "Search pages are numbered from 1"
+            raise ValueError(msg)
+
+        if recorded := self.get_recorded_page(page_index):
+            return self._parse_page(recorded)
 
         params = self._get_params()
         params["page"] = str(page_index)
-        doc = self._request(self._ws_prefix + ".search", True, params)
+        request = _Request(self.network, self._ws_prefix + ".search", params)
+        raw_response = request.execute_raw(cacheable=True)
+        doc = _parse_response(raw_response)
 
-        if matches := doc.getElementsByTagName(self._ws_prefix + "matches"):
-            return matches[0]
+        record = self.journal.record_page(
+            kind=self._ws_prefix,
+            filters=self.search_filters,
+            page=page_index,
+            query=self._page_query(doc, page_index),
+            queries=self._page_queries(doc),
+            results=self._page_results(doc),
+            request_params=params,
+            raw_response=raw_response,
+            origin=self._origin,
+            requested_terms=self._requested_terms,
+            total_results=self._page_total_results(doc),
+            items_per_page=self._page_number(doc, "itemsPerPage"),
+            start_index=self._page_number(doc, "startIndex"),
+        )
+        return self._parse_page(record)
 
-        return doc.createElement(self._ws_prefix + "matches")
+    def get_recorded_page(self, page_index: int) -> SearchPage | None:
+        """Returns the stored record for one page, if it exists."""
 
-    def _retrieve_next_page(self) -> minidom.Element:
-        self._last_page_index += 1
-        return self._retrieve_page(self._last_page_index)
+        return self.journal.page(
+            self._ws_prefix,
+            self.search_filters,
+            page_index,
+            self._origin,
+            self._requested_terms,
+        )
+
+    def get_raw_response(self, page_index: int) -> str | None:
+        """Returns the raw, unparsed response stored for a page."""
+
+        return self.journal.raw_response(
+            self._ws_prefix,
+            self.search_filters,
+            page_index,
+            self._origin,
+            self._requested_terms,
+        )
+
+    def recover(self) -> SearchRecovery:
+        """Returns the resumable state and provenance of this search."""
+
+        return self.journal.recovery(self._ws_prefix, self.search_filters)
+
+    def explain(self) -> dict:
+        """Returns which pages belong to the original query or a correction."""
+
+        return self.recover().explain()
+
+    def describe(self) -> str:
+        """Returns a human-readable provenance description."""
+
+        return self.recover().describe()
+
+    def get_suggested_corrections(self) -> tuple[SearchQuery, ...]:
+        """Returns correction suggestions seen in recorded responses."""
+
+        seen: dict[tuple[str, str | None], SearchQuery] = {}
+        for page in self.recover().pages:
+            for query in page.corrections:
+                seen[(query.normalized_role, query.search_terms)] = query
+        return tuple(seen.values())
+
+    def _page_queries(self, doc: minidom.Document) -> tuple[SearchQuery, ...]:
+        nodes = doc.getElementsByTagName("Query") or doc.getElementsByTagName(
+            "query"
+        )
+        queries = []
+        for node in nodes:
+            start_page = node.getAttribute("startPage") or node.getAttribute(
+                "startpage"
+            )
+            queries.append(
+                SearchQuery(
+                    role=node.getAttribute("role") or "request",
+                    search_terms=node.getAttribute("searchTerms")
+                    or node.getAttribute("searchterms")
+                    or None,
+                    start_page=int(start_page) if start_page.isdigit() else None,
+                )
+            )
+        return tuple(queries)
+
+    def _page_query(
+        self, doc: minidom.Document, page_index: int
+    ) -> SearchQuery:
+        queries = self._page_queries(doc)
+        for query in queries:
+            if query.normalized_role == "request" and query.search_terms:
+                return query
+        if queries:
+            return queries[0]
+        # Some compatible services omit the Query element but still report the
+        # terms they interpreted on the results element.
+        results = doc.getElementsByTagName("results")
+        interpreted = None
+        if results:
+            interpreted = results[0].getAttribute("for") or None
+        return SearchQuery(
+            role="request",
+            search_terms=interpreted or self._requested_terms,
+            start_page=page_index,
+        )
+
+    def _page_number(self, doc: minidom.Document, name: str) -> int | None:
+        value = _extract(doc, name)
+        return int(_number(value)) if value not in (None, "") else None
+
+    def _page_total_results(self, doc: minidom.Document) -> int | None:
+        return self._page_number(doc, "totalResults")
+
+    def _page_results(self, doc: minidom.Document) -> tuple[SearchResult, ...]:
+        matches = self._matches_node(doc)
+        if matches is None:
+            return ()
+        start_index = self._page_number(doc, "startIndex") or 0
+        results = []
+        for position, node in enumerate(
+            matches.getElementsByTagName(self._result_tag), start=1
+        ):
+            rank_attribute = node.getAttribute("rank")
+            rank = (
+                int(rank_attribute)
+                if rank_attribute.isdigit()
+                else int(start_index) + position
+            )
+            results.append(
+                SearchResult(
+                    rank=rank,
+                    position=position,
+                    name=_extract(node, "name"),
+                    artist=_extract(node, "artist"),
+                    url=_extract(node, "url"),
+                    mbid=_extract(node, "mbid"),
+                )
+            )
+        return tuple(results)
+
+    def _matches_node(
+        self, doc: minidom.Document
+    ) -> minidom.Element | None:
+        matches = doc.getElementsByTagName(self._ws_prefix + "matches")
+        return matches[0] if matches else None
+
+    def _page_match_nodes(self, page: SearchPage) -> list[minidom.Element]:
+        """Rebuilds the result nodes from the stored raw response."""
+
+        if not page.raw_response:
+            return []
+        doc = _parse_response(page.raw_response)
+        matches = self._matches_node(doc)
+        if matches is None:
+            return []
+        return list(matches.getElementsByTagName(self._result_tag))
+
+    def _parse_page(self, page: SearchPage) -> list:
+        raise NotImplementedError
+
 
 
 class AlbumSearch(_Search):
     """Search for an album by name."""
 
-    def __init__(self, album_name, network) -> None:
+    _result_tag = "album"
+    _requested_term_key = "album"
+
+    def __init__(
+        self,
+        album_name,
+        network,
+        journal=None,
+        origin: str = ORIGIN_ORIGINAL,
+        requested_terms: str | None = None,
+    ) -> None:
         super().__init__(
-            ws_prefix="album", search_terms={"album": album_name}, network=network
+            ws_prefix="album",
+            search_terms={"album": album_name},
+            network=network,
+            journal=journal,
+            origin=origin,
+            requested_terms=requested_terms,
         )
 
-    def get_next_page(self) -> list[Album]:
-        """Returns the next page of results as a sequence of Album objects."""
-
-        master_node = self._retrieve_next_page()
-
-        seq = [
+    def _parse_page(self, page: SearchPage) -> list[Album]:
+        return [
             Album(
                 _extract(node, "artist"),
                 _extract(node, "name"),
                 self.network,
                 info={"image": _extract_all(node, "image")},
             )
-            for node in master_node.getElementsByTagName("album")
+            for node in self._page_match_nodes(page)
         ]
 
-        return seq
+    def get_next_page(self) -> list[Album]:
+        """Returns the next page of results as a sequence of Album objects."""
+
+        return super().get_next_page()
 
 
 class ArtistSearch(_Search):
     """Search for an artist by artist name."""
 
-    def __init__(self, artist_name, network) -> None:
+    _result_tag = "artist"
+    _requested_term_key = "artist"
+
+    def __init__(
+        self,
+        artist_name,
+        network,
+        journal=None,
+        origin: str = ORIGIN_ORIGINAL,
+        requested_terms: str | None = None,
+    ) -> None:
         super().__init__(
-            ws_prefix="artist", search_terms={"artist": artist_name}, network=network
+            ws_prefix="artist",
+            search_terms={"artist": artist_name},
+            network=network,
+            journal=journal,
+            origin=origin,
+            requested_terms=requested_terms,
         )
 
-    def get_next_page(self) -> list[Artist]:
-        """Returns the next page of results as a sequence of Artist objects."""
-
-        master_node = self._retrieve_next_page()
-
+    def _parse_page(self, page: SearchPage) -> list[Artist]:
         seq = []
-        for node in master_node.getElementsByTagName("artist"):
+        for node in self._page_match_nodes(page):
             artist = Artist(
                 _extract(node, "name"),
                 self.network,
@@ -2733,6 +3069,11 @@ class ArtistSearch(_Search):
 
         return seq
 
+    def get_next_page(self) -> list[Artist]:
+        """Returns the next page of results as a sequence of Artist objects."""
+
+        return super().get_next_page()
+
 
 class TrackSearch(_Search):
     """
@@ -2740,20 +3081,30 @@ class TrackSearch(_Search):
     down by specifying the artist name, set it to empty string.
     """
 
-    def __init__(self, artist_name, track_title, network) -> None:
+    _result_tag = "track"
+    _requested_term_key = "track"
+
+    def __init__(
+        self,
+        artist_name,
+        track_title,
+        network,
+        journal=None,
+        origin: str = ORIGIN_ORIGINAL,
+        requested_terms: str | None = None,
+    ) -> None:
         super().__init__(
             ws_prefix="track",
             search_terms={"track": track_title, "artist": artist_name},
             network=network,
+            journal=journal,
+            origin=origin,
+            requested_terms=requested_terms,
         )
 
-    def get_next_page(self) -> list[Track]:
-        """Returns the next page of results as a sequence of Track objects."""
-
-        master_node = self._retrieve_next_page()
-
+    def _parse_page(self, page: SearchPage) -> list[Track]:
         seq = []
-        for node in master_node.getElementsByTagName("track"):
+        for node in self._page_match_nodes(page):
             track = Track(
                 _extract(node, "artist"),
                 _extract(node, "name"),
@@ -2765,6 +3116,11 @@ class TrackSearch(_Search):
 
         return seq
 
+    def get_next_page(self) -> list[Track]:
+        """Returns the next page of results as a sequence of Track objects."""
+
+        return super().get_next_page()
+
 
 def md5(text: str) -> str:
     """Returns the md5 hash of a string."""
@@ -2772,6 +3128,14 @@ def md5(text: str) -> str:
     h.update(text.encode("utf-8"))
 
     return h.hexdigest()
+
+
+def _temp_journal_path() -> str:
+    file_descriptor, file_path = tempfile.mkstemp(
+        prefix="pylast_search_", suffix=".jsonl"
+    )
+    os.close(file_descriptor)
+    return file_path
 
 
 def cleanup_nodes(doc):
