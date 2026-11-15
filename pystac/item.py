@@ -257,6 +257,31 @@ class Item(STACObject, Assets):
         else:
             asset.extra_fields["datetime"] = datetime_to_str(datetime)
 
+    def get_asset_times(self) -> dict[str, pystac.AssetTime]:
+        """Resolve the temporal information of every asset of this item.
+
+        Each :class:`~pystac.AssetTime` records whether its fields were declared
+        on the asset or inherited from this item, retains start/end intervals
+        when ``datetime`` is missing, and flags contradictory bounds without
+        reordering them. See :func:`pystac.get_asset_times`.
+        """
+        from pystac.temporal import get_asset_times
+
+        return get_asset_times(self)
+
+    def search_assets_at(
+        self, instant: Datetime
+    ) -> pystac.AssetSearchResult:
+        """Split the item's assets into definite and possible hits at ``instant``.
+
+        Definite hits rely solely on time declared on the asset itself; assets
+        that only inherit this item's temporal metadata, or have none, are
+        reported as possible. See :func:`pystac.search_assets`.
+        """
+        from pystac.temporal import search_assets
+
+        return search_assets(self, instant)
+
     def set_collection(self, collection: Collection | None) -> Item:
         """Set the collection of this item.
 

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add `pystac.temporal` with `AssetTime`, `TimeValue`, `TimeOrigin`, `TimeConflict`,
+  `get_asset_time`, `get_asset_times` and `search_assets` for resolving the temporal
+  metadata that actually applies to each asset. Resolved values record whether they
+  were declared on the asset or inherited from the owning item, paired
+  `start_datetime`/`end_datetime` values are retained when `datetime` is missing,
+  contradictory bounds are flagged as conflicts without being reordered, and searches
+  at an instant distinguish definite from possible hits.
+
 ## [v1.10.1] - 2024-05-03
 
 ### Fixed

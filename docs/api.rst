@@ -41,6 +41,10 @@ like :stac-spec:`Asset Objects<item-spec/item-spec.md#asset-object>`.
 * :class:`pystac.CommonMetadata`: A container for fields defined in the
   :stac-spec:`Common Metadata <item-spec/common-metadata.md>` section of the spec.
   These fields are commonly found in STAC Item properties, but may be found elsewhere.
+* :mod:`pystac.temporal`: Resolves the time that actually applies to each asset,
+  tracking whether each value was declared on the asset or inherited from the item,
+  flagging contradictory bounds, and distinguishing definite from possible hits when
+  searching at an instant.
 
 Collections
 -----------

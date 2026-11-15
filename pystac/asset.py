@@ -13,6 +13,7 @@ from pystac.utils import is_absolute_href, make_absolute_href, make_relative_hre
 if TYPE_CHECKING:
     from pystac.common_metadata import CommonMetadata
     from pystac.extensions.ext import AssetExt
+    from pystac.temporal import AssetTime
 
 A = TypeVar("A", bound="Asset")
 
@@ -176,6 +177,18 @@ class Asset:
         """Access the asset's common metadata fields as a
         :class:`~pystac.CommonMetadata` object."""
         return common_metadata.CommonMetadata(self)
+
+    @property
+    def time(self) -> AssetTime:
+        """The resolved temporal information for this asset.
+
+        Combines values declared on the asset with values inherited from the
+        owning item, recording the origin of each field and any conflicts. See
+        :class:`pystac.AssetTime` and :func:`pystac.get_asset_time`.
+        """
+        from pystac.temporal import get_asset_time
+
+        return get_asset_time(self)
 
     def __repr__(self) -> str:
         return f"<Asset href={self.href}>"
