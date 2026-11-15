@@ -28,6 +28,53 @@ functions.
 .. autofunction:: parse_one_component_value
 
 
+Encoding and Incremental Collection
+-----------------------------------
+
+These functions expose the encoding decision made while decoding stylesheet
+bytes, and let a collection of linked stylesheets be re-parsed from their
+original bytes when a parent changes.
+
+.. module:: tinycss2.bytes
+.. autofunction:: determine_encoding
+.. autofunction:: decode_stylesheet_bytes
+.. autofunction:: decode_stylesheet_bytes_detailed
+.. autofunction:: parse_stylesheet_bytes_detailed
+.. autoclass:: EncodingDecision
+   :members:
+.. autoclass:: DecodedStylesheet
+   :members:
+.. autodata:: BOM
+.. autodata:: PROTOCOL
+.. autodata:: CHARSET
+.. autodata:: ENVIRONMENT
+.. autodata:: DEFAULT
+.. autodata:: ENCODING_SOURCES
+
+.. module:: tinycss2.incremental
+.. autoclass:: StylesheetCollector
+   :members:
+.. autoclass:: CollectionResult
+   :members:
+.. autoclass:: ParseRecord
+   :members:
+.. autoclass:: ParseEvent
+   :members:
+.. autoclass:: ParseKey
+   :members:
+.. autoclass:: SourceBytes
+   :members:
+.. autofunction:: extract_identifiers
+.. autofunction:: extract_resource_references
+.. autodata:: FIRST_PARSE
+.. autodata:: SOURCE_CHANGED
+.. autodata:: PROTOCOL_CHANGED
+.. autodata:: ENCODING_CHANGED
+.. autodata:: INHERITED_ENCODING_CHANGED
+.. autodata:: OWN_ENCODING_HINT
+.. autodata:: UNCHANGED
+
+
 Serialization
 -------------
 

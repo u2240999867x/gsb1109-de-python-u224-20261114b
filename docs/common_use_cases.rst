@@ -82,6 +82,44 @@ This function has the same ``skip_comments`` and ``skip_whitespace`` parameters
 as the ``parse_stylesheet*`` functions.
 
 
+Incremental Collection
+----------------------
+
+When a stylesheet links other stylesheets with ``@import``, the encoding of
+the parent becomes the environment encoding of its children.  If the parent
+changes later, a child without its own BOM, protocol encoding or ``@charset``
+rule has to be decoded again from its original bytes.  Children that carry
+their own encoding hint are unaffected, and the same byte string linked from
+two parents with different environment encodings keeps both results.
+
+:class:`tinycss2.incremental.StylesheetCollector` records the encoding
+decision of every parse and performs this bookkeeping:
+
+.. code-block:: python
+
+   from webencodings import lookup
+   from tinycss2.incremental import StylesheetCollector
+
+   collector = StylesheetCollector()
+   collector.add('main', main_bytes)
+   collector.add('theme', theme_bytes)
+   collector.link('main', 'theme')
+   result = collector.collect_all('main')
+   theme = result.record_for('theme')
+   theme.encoding_source   # 'environment'
+   theme.encoding          # <Encoding iso-8859-2>
+
+   # Later, the parent changes:
+   collector.update('main', new_main_bytes)
+   collector.reread_plan('main')
+   # [('main', None), ('theme', 'main')]
+
+Each :class:`~tinycss2.incremental.ParseRecord` carries the encoding, its
+source, and the identifier and resource references extracted from the tree,
+so the incremental result can be compared with a full
+:func:`tinycss2.parse_stylesheet_bytes` parse of the same bytes.
+
+
 Serializing
 -----------
 
