@@ -233,14 +233,26 @@ class IdentToken(Node):
         see :func:`~webencodings.ascii_lower`.
         This is the value to use when comparing to a CSS keyword.
 
+    .. attribute:: representation
+
+        The identifier as it was written in the CSS source, including any
+        escape sequences, or :obj:`None` for tokens built without source
+        information.
+
+        The whitespace character that terminates a hexadecimal escape belongs
+        to the escape’s source spelling and is therefore part of this
+        representation, although it is not part of :attr:`value`. Any
+        additional whitespace following it is a separate whitespace token.
+
     """
-    __slots__ = ['lower_value', 'value']
+    __slots__ = ['lower_value', 'representation', 'value']
     type = 'ident'
     repr_format = '<{self.__class__.__name__} {self.value}>'
 
-    def __init__(self, line, column, value):
+    def __init__(self, line, column, value, representation=None):
         Node.__init__(self, line, column)
         self.value = value
+        self.representation = representation
         try:
             self.lower_value = ascii_lower(value)
         except UnicodeEncodeError:
@@ -731,6 +743,16 @@ class Declaration(Node):
 
         The unescaped name, as a Unicode string.
 
+    .. attribute:: raw_name
+
+        The name as written in the CSS source, including escape sequences.
+        When the declaration was not built from a source string, this is the
+        canonical serialization of :attr:`name`.
+
+        The whitespace character terminating a hexadecimal escape is not part
+        of the identifier itself, but it is part of the escape’s source
+        spelling, so it is kept in :attr:`raw_name`.
+
     .. attribute:: lower_name
 
         Same as :attr:`name` but normalized to *ASCII lower case*,
@@ -741,6 +763,20 @@ class Declaration(Node):
         .. code-block:: python
 
             if node.type == 'declaration' and node.lower_name == 'color':
+
+        Custom property names are case-sensitive. Use :attr:`logical_name`
+        rather than :attr:`lower_name` when the declaration may be a custom
+        property.
+
+    .. attribute:: logical_name
+
+        The key to use when grouping declarations: same as :attr:`lower_name`
+        for ordinary properties, and the case-sensitive :attr:`name` for
+        custom properties (whose name starts with ``--``).
+
+    .. attribute:: is_custom_property
+
+        A boolean, true when :attr:`name` starts with ``--``.
 
     .. attribute:: value
 
@@ -755,14 +791,24 @@ class Declaration(Node):
         this flag, such as non-property descriptor declarations.
 
     """
-    __slots__ = ['important', 'lower_name', 'name', 'value']
+    __slots__ = [
+        'important', 'is_custom_property', 'logical_name', 'lower_name',
+        'name', 'raw_name', 'value']
     type = 'declaration'
     repr_format = '<{self.__class__.__name__} {self.name}: …>'
 
-    def __init__(self, line, column, name, lower_name, value, important):
+    def __init__(self, line, column, name, lower_name, value, important,
+                 raw_name=None):
         Node.__init__(self, line, column)
         self.name = name
+        self.is_custom_property = name.startswith('--')
+        if self.is_custom_property:
+            lower_name = name
         self.lower_name = lower_name
+        self.logical_name = lower_name
+        if raw_name is None:
+            raw_name = serialize_identifier(name)
+        self.raw_name = raw_name
         self.value = value
         self.important = important
 

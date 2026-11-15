@@ -82,6 +82,55 @@ This function has the same ``skip_comments`` and ``skip_whitespace`` parameters
 as the ``parse_stylesheet*`` functions.
 
 
+Cleaning declarations
+---------------------
+
+Declaration names may be written with escapes, as in ``\63 olor: red``.
+:func:`~tinycss2.declaration.declaration_key` returns the logical name to use
+for grouping: ordinary properties are ASCII case-insensitive, while custom
+properties starting with ``--`` stay case-sensitive.
+
+.. code-block:: python
+
+   from tinycss2.declaration import declaration_key, declaration_raw_name
+
+   declaration = tinycss2.parse_one_declaration(r'c\6flor: red')
+   declaration_key(declaration)
+   # 'color'
+   declaration_raw_name(declaration)
+   # 'c\\6flor'
+
+.. code-block:: python
+
+   declarations = tinycss2.parse_blocks_contents(
+       'COLOR: red; color: blue; --Foo: 1; --foo: 2', skip_whitespace=True)
+   for declaration in declarations:
+       print(declaration_key(declaration), declaration.name)
+   # color COLOR
+   # color color
+   # --Foo --Foo
+   # --foo --foo
+
+:func:`~tinycss2.declaration.clean_declarations` parses a declaration list and
+resolves duplicates within that scope. Later declarations win, except that an
+``!important`` declaration is not overridden by a later normal one:
+
+.. code-block:: python
+
+   cleaned = tinycss2.clean_declarations(
+       'COLOR: red; color: blue; color: green !important')
+   [(d.name, d.raw_name) for d in cleaned]
+   # [('color', 'color')]
+   tinycss2.serialize(cleaned)
+   # 'color: green !important;'
+
+For a whole stylesheet, :func:`~tinycss2.declaration.clean_stylesheet` resolves
+duplicates independently in each rule. Use
+:func:`~tinycss2.declaration.reconcile_declarations` to re-export cleaned
+declarations, tokenize them again, and check that logical keys, order and
+values still match; its ``errors`` list is empty when reconciliation succeeds.
+
+
 Serializing
 -----------
 

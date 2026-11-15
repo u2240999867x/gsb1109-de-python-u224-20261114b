@@ -7,9 +7,13 @@ import pytest
 from webencodings import Encoding, lookup
 
 from tinycss2 import (  # isort:skip
-    parse_blocks_contents, parse_component_value_list, parse_declaration_list,
+    clean_declarations, clean_stylesheet, declaration_key,
+    declaration_raw_name, declaration_records, parse_blocks_contents,
+    parse_component_value_list, parse_declaration_list,
     parse_one_component_value, parse_one_declaration, parse_one_rule,
-    parse_rule_list, parse_stylesheet, parse_stylesheet_bytes, serialize)
+    parse_rule_list, parse_stylesheet, parse_stylesheet_bytes,
+    reconcile_declarations, reconciliation_errors, resolve_declarations,
+    serialize)
 from tinycss2.ast import (  # isort:skip
     AtKeywordToken, AtRule, Comment, CurlyBracketsBlock, Declaration,
     DimensionToken, FunctionBlock, HashToken, IdentToken, LiteralToken,
@@ -725,3 +729,159 @@ def test_escape_in_function_name():
     function, = parse_component_value_list('\\dddf()')
     assert function.type == 'function'
     assert function.name == '\udddf'
+
+
+def test_ident_representation_keeps_source_spelling():
+    token, = parse_component_value_list(r'\63 olor')
+    assert token.value == 'color'
+    assert token.representation == r'\63 olor'
+
+
+def test_hex_escape_terminator_is_not_part_of_the_identifier():
+    # The space after a hexadecimal escape terminates the escape and is
+    # consumed with it, but it is not part of the unescaped identifier.
+    first, whitespace, second = parse_component_value_list(r'\41  B')
+    assert (first.value, first.representation) == ('A', r'\41 ')
+    assert whitespace.value == ' '
+    assert second.value == 'B'
+
+
+def test_hex_escape_terminator_space_round_trips():
+    source = r'\41  B'
+    assert serialize(parse_component_value_list(source)) == 'A B'
+    assert parse_one_declaration(source).type == 'error'
+
+
+def test_ordinary_property_names_fold_case():
+    declaration = parse_one_declaration('CoLoR: red')
+    assert declaration.name == 'CoLoR'
+    assert declaration.lower_name == 'color'
+    assert declaration.logical_name == 'color'
+    assert declaration.is_custom_property is False
+
+
+def test_escaped_ordinary_property_uses_logical_name():
+    declaration = parse_one_declaration(r'c\6flor: red')
+    assert declaration.name == 'color'
+    assert declaration.lower_name == 'color'
+    assert declaration.raw_name == r'c\6flor'
+
+
+def test_custom_property_names_are_case_sensitive():
+    declaration = parse_one_declaration('--Foo: 1')
+    assert declaration.name == '--Foo'
+    assert declaration.lower_name == '--Foo'
+    assert declaration.logical_name == '--Foo'
+    assert declaration.is_custom_property is True
+    other = parse_one_declaration('--foo: 2')
+    assert declaration_key(declaration) == '--Foo'
+    assert declaration_key(other) == '--foo'
+
+
+def test_escaped_custom_property_keeps_source_spelling():
+    declaration = parse_one_declaration(r'--\46 oo: 1')
+    assert declaration.name == '--Foo'
+    assert declaration.raw_name == r'--\46 oo'
+    assert declaration_key(declaration) == '--Foo'
+    assert declaration_raw_name(declaration) == r'--\46 oo'
+
+
+def test_custom_property_value_may_contain_blocks():
+    declaration = parse_blocks_contents(
+        '--x: {a:b} c; color: red', skip_whitespace=True)[0]
+    assert declaration.name == '--x'
+    assert serialize(declaration.value) == ' {a:b} c'
+
+
+def test_resolve_declarations_last_wins_in_order():
+    declarations = clean_declarations(
+        'color: red; margin: 0; COLOR: blue; --x: 1; --x: 2;')
+    assert [(d.logical_name, d.raw_name) for d in declarations] == [
+        ('margin', 'margin'), ('color', 'COLOR'), ('--x', '--x')]
+    assert serialize(declarations) == 'margin: 0;color: blue;--x: 2;'
+
+
+def test_resolve_declarations_important_beats_later_normal():
+    declarations = clean_declarations(
+        'color: red !important; color: blue; color: green !important;')
+    assert len(declarations) == 1
+    assert serialize(declarations[0].value) == ' green '
+    assert declarations[0].important
+
+
+def test_resolve_declarations_first_wins():
+    declarations = parse_blocks_contents(
+        'color: red; COLOR: blue;', skip_whitespace=True)
+    resolved = resolve_declarations(declarations, keep='first')
+    assert [serialize(d.value) for d in resolved] == [' red']
+
+
+def test_clean_declaration_canonicalizes_name_but_keeps_source():
+    declaration = parse_one_declaration(r'\63 olor: red')
+    cleaned = clean_declarations(r'\63 olor: red')
+    assert len(cleaned) == 1
+    assert cleaned[0].name == 'color'
+    assert cleaned[0].raw_name == declaration.raw_name
+    assert cleaned[0].serialize() == 'color: red'
+
+
+def test_scopes_resolve_duplicates_independently():
+    scopes = clean_stylesheet(
+        'a { color: red; COLOR: blue } b { color: green !important; COLOR: black }')
+    assert len(scopes) == 2
+    assert [serialize(d.value) for d in scopes[0]['declarations']] == [
+        ' blue ']
+    assert [serialize(d.value) for d in scopes[1]['declarations']] == [
+        ' green ']
+    assert scopes[1]['declarations'][0].important
+
+
+def test_scopes_visit_nested_rules():
+    scopes = clean_stylesheet(
+        '@media print { a { COLOR: red; color: blue } } b { color: green }')
+    assert len(scopes) == 2
+    assert [serialize(d.value) for d in scopes[0]['declarations']] == [
+        ' blue ']
+    assert [serialize(d.value) for d in scopes[1]['declarations']] == [
+        ' green ']
+
+
+def test_reconciliation_matches_keys_order_and_values():
+    result = reconcile_declarations(
+        r'--A: 1; --a: 2; Color: x; c\6flor: y; COLOR: z !important;')
+    assert result['errors'] == []
+    assert [record['key'] for record in result['records']] == [
+        '--A', '--a', 'color']
+    assert [record['key'] for record in result['reparsed']] == [
+        '--A', '--a', 'color']
+    assert result['serialized'] == '--A: 1;--a: 2;color: z !important;'
+
+
+def test_reconciliation_reports_value_differences():
+    records = [{'key': 'a', 'name': 'a', 'important': False, 'value': '1'}]
+    reparsed = [{'key': 'a', 'name': 'a', 'important': False, 'value': '2'}]
+    assert reconciliation_errors(records, reparsed) == [
+        "Declaration 0 value changed from '1' to '2'"]
+
+
+def test_reconciliation_preserves_value_tokenization():
+    source = 'color: rgb(0, 0, 0); --x: {a:b}; margin: calc(1px + 2px)'
+    result = reconcile_declarations(source)
+    assert result['errors'] == []
+    values = [record['value'] for record in result['records']]
+    assert values == [
+        record['value'] for record in result['reparsed']]
+    assert values == [' rgb(0, 0, 0)', ' {a:b}', ' calc(1px + 2px)']
+
+
+def test_declaration_records_keep_original_spelling():
+    records = declaration_records(
+        clean_declarations(r'COLOR: red; --\46 oo: 1; --foo: 2'))
+    assert records == [
+        {'key': 'color', 'name': 'color', 'raw_name': 'COLOR',
+         'important': False, 'value': ' red', 'text': 'color: red'},
+        {'key': '--Foo', 'name': '--Foo', 'raw_name': r'--\46 oo',
+         'important': False, 'value': ' 1', 'text': '--Foo: 1'},
+        {'key': '--foo', 'name': '--foo', 'raw_name': '--foo',
+         'important': False, 'value': ' 2', 'text': '--foo: 2'},
+    ]

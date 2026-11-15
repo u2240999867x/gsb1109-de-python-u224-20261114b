@@ -2,6 +2,20 @@ Changelog
 =========
 
 
+Version 1.6.0
+-------------
+
+Unreleased.
+
+* Add declaration cleaning helpers: logical keys fold ordinary property names
+  to ASCII lower case while custom properties stay case-sensitive, original
+  escaped spellings remain available, and duplicates resolve per scope.
+* Keep the source spelling of identifiers in ``IdentToken.representation``
+  and ``Declaration.raw_name``.
+* Parse custom properties whose value contains ``{}`` blocks without
+  truncating the declaration.
+
+
 Version 1.5.1
 -------------
 

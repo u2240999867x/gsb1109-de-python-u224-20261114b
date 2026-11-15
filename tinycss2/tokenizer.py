@@ -65,9 +65,9 @@ def parse_component_value_list(css, skip_comments=False):
             pos += 3
             continue
         elif _is_ident_start(css, pos):
-            value, pos = _consume_ident(css, pos)
+            value, pos, representation = _consume_ident(css, pos)
             if not css.startswith('(', pos):  # Not a function
-                tokens.append(IdentToken(line, column, value))
+                tokens.append(IdentToken(line, column, value, representation))
                 continue
             pos += 1  # Skip the '('
             try:
@@ -107,7 +107,7 @@ def parse_component_value_list(css, skip_comments=False):
             value = float(repr_)
             int_value = int(repr_) if not any(match.groups()) else None
             if pos < length and _is_ident_start(css, pos):
-                unit, pos = _consume_ident(css, pos)
+                unit, pos, _ = _consume_ident(css, pos)
                 tokens.append(DimensionToken(
                     line, column, value, int_value, repr_, unit))
             elif css.startswith('%', pos):
@@ -118,7 +118,7 @@ def parse_component_value_list(css, skip_comments=False):
         elif c == '@':
             pos += 1
             if pos < length and _is_ident_start(css, pos):
-                value, pos = _consume_ident(css, pos)
+                value, pos, _ = _consume_ident(css, pos)
                 tokens.append(AtKeywordToken(line, column, value))
             else:
                 tokens.append(LiteralToken(line, column, '@'))
@@ -131,7 +131,7 @@ def parse_component_value_list(css, skip_comments=False):
                     # Valid escape:
                     (css[pos] == '\\' and not css.startswith('\\\n', pos))):
                 is_identifier = _is_ident_start(css, pos)
-                value, pos = _consume_ident(css, pos)
+                value, pos, _ = _consume_ident(css, pos)
                 tokens.append(HashToken(line, column, value, is_identifier))
             else:
                 tokens.append(LiteralToken(line, column, '#'))
@@ -228,15 +228,19 @@ def _is_ident_start(css, pos):
 
 
 def _consume_ident(css, pos):
-    """Return (unescaped_value, new_pos).
+    """Return (unescaped_value, new_pos, representation).
 
     Assumes pos starts at a valid identifier. See :func:`_is_ident_start`.
+
+    The representation is the exact source slice of the identifier, including
+    escape sequences and the whitespace character that terminates a
+    hexadecimal escape.
 
     """
     # http://dev.w3.org/csswg/css-syntax/#consume-a-name
     chunks = []
     length = len(css)
-    start_pos = pos
+    ident_start_pos = start_pos = pos
     while pos < length:
         c = css[pos]
         if c in ('abcdefghijklmnopqrstuvwxyz-_0123456789'
@@ -251,7 +255,7 @@ def _consume_ident(css, pos):
         else:
             break
     chunks.append(css[start_pos:pos])
-    return ''.join(chunks), pos
+    return ''.join(chunks), pos, css[ident_start_pos:pos]
 
 
 def _consume_quoted_string(css, pos):

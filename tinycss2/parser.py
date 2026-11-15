@@ -152,9 +152,10 @@ def _parse_declaration(first_token, tokens, nested=True):
     if state == 'important':
         del value[bang_position:]
 
-    # TODO: Handle custom property names
+    is_custom_property = name.value.startswith('--')
 
-    if contains_simple_block and contains_non_whitespace:
+    if (contains_simple_block and contains_non_whitespace and
+            not is_custom_property):
         return ParseError(
             colon.source_line, colon.source_column, 'invalid',
             'Declaration contains {} block')
@@ -163,20 +164,22 @@ def _parse_declaration(first_token, tokens, nested=True):
 
     return Declaration(
         name.source_line, name.source_column, name.value, name.lower_value,
-        value, state == 'important')
+        value, state == 'important', raw_name=name.representation)
 
 
 def _consume_blocks_content(first_token, tokens):
     """Consume declaration or nested rule."""
     declaration_tokens = []
     semicolon_token = []
+    is_custom_property = (
+        first_token.type == 'ident' and first_token.value.startswith('--'))
     if first_token != ';' and first_token.type != '{} block':
         for token in tokens:
             if token == ';':
                 semicolon_token.append(token)
                 break
             declaration_tokens.append(token)
-            if token.type == '{} block':
+            if token.type == '{} block' and not is_custom_property:
                 break
     declaration = _parse_declaration(
         first_token, iter(declaration_tokens), nested=True)

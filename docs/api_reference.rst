@@ -28,6 +28,26 @@ functions.
 .. autofunction:: parse_one_component_value
 
 
+Declaration cleaning
+--------------------
+
+Escaped property names are unescaped when parsing. The functions below provide
+the logical key of a declaration, keep the original spelling available, and
+resolve duplicate declarations per scope.
+
+.. module:: tinycss2.declaration
+.. autofunction:: declaration_key
+.. autofunction:: declaration_raw_name
+.. autofunction:: clean_declaration
+.. autofunction:: clean_declarations
+.. autofunction:: resolve_declarations
+.. autofunction:: clean_scopes
+.. autofunction:: clean_stylesheet
+.. autofunction:: declaration_records
+.. autofunction:: reconciliation_errors
+.. autofunction:: reconcile_declarations
+
+
 Serialization
 -------------
 
