@@ -3,6 +3,9 @@
 ## master (unreleased)
 
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
+- New ``workalendar.reconciliation`` module: split a date range into
+  same-day handover and next-working-day dispatch/receipt windows for a
+  sender/receiver calendar pair.
 
 ## v17.0.0 (2023-01-01)
 

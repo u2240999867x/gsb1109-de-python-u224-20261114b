@@ -37,3 +37,9 @@ class ICalExportTargetPathError(ICalExportError):
     """
     Raised when the iCal export is impossible due to unusable target path
     """
+
+
+class UnsupportedContract(CalendarError):
+    """
+    Raised when a reconciliation contract name is unknown
+    """

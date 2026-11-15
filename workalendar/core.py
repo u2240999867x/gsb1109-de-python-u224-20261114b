@@ -709,6 +709,43 @@ class CoreCalendar:
             day = day + timedelta(days=1)
         return day
 
+    def reconciliation_calendar(self, other, **kwargs):
+        """Pair this calendar (sender) with ``other`` (receiver).
+
+        Returns a :class:`workalendar.reconciliation.ReconciliationCalendar`
+        configured with this calendar as the sender and ``other`` as the
+        receiver.  Imported lazily to keep ``core`` free of module cycles.
+        """
+        from .reconciliation import ReconciliationCalendar
+        return ReconciliationCalendar(self, other, **kwargs)
+
+    def get_reconciliation_windows(self, other, start, end, contract=None):
+        """Reconciliation windows for this sender and ``other`` receiver.
+
+        See :mod:`workalendar.reconciliation` for both contract definitions.
+        """
+        return self.reconciliation_calendar(other).get_windows(
+            start, end, contract=contract)
+
+    def get_reconciliation_plan(self, other, start, end):
+        """Both reconciliation contracts for this sender and ``other``."""
+        return self.reconciliation_calendar(other).plan(start, end)
+
+    def get_common_working_days(self, other, start, end):
+        """Dates in ``[start, end]`` that are working days for both sides."""
+        return self.reconciliation_calendar(
+            other).get_common_working_days(start, end)
+
+    def get_same_day_handovers(self, other, start, end):
+        """Dates on which both sides can hand over on the same day."""
+        return self.reconciliation_calendar(
+            other).get_same_day_handovers(start, end)
+
+    def get_dispatch_receipts(self, other, start, end):
+        """``(dispatch, receipt)`` pairs for the next-working-day contract."""
+        return self.reconciliation_calendar(
+            other).get_dispatch_receipts(start, end)
+
     @staticmethod
     def get_nth_weekday_in_month(year, month, weekday, n=1, start=None):
         """Get the nth weekday in a given month. e.g:
