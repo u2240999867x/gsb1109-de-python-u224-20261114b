@@ -37,6 +37,17 @@ from xml.dom import Node, minidom
 import httpx2 as httpx
 
 from ._version import __version__
+from ._weighting import (
+    SourceReport,
+    TagWeight,
+    ThemeSplit,
+    ThemeWeightRollup,
+    UnassignedShare,
+    UnreturnedRange,
+    WeightBasis,
+    WeightRollup,
+    roll_up_theme_weights,
+)
 
 TYPE_CHECKING = False
 if TYPE_CHECKING:
