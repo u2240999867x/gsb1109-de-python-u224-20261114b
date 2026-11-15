@@ -16,6 +16,8 @@ Synopsis
     webvtt sync PATH (-p FROM TO -p FROM TO ... | --fps FROM TO) [-o OUTPUT]
                 [INPUT OPTIONS]
     webvtt validate PATH [INPUT OPTIONS]
+    webvtt occlusions PATH [--viewport WIDTHxHEIGHT] [--line-height PIXELS]
+                      [INPUT OPTIONS]
     webvtt convert PATH [-o OUTPUT] [-t FORMAT] [--keep-formatting]
                    [INPUT OPTIONS]
     webvtt -h
@@ -26,7 +28,8 @@ Description
 
 ``webvtt`` segments a caption file for `HTTP Live Streaming`_ (HLS),
 shifts or synchronizes the timestamps of its captions, checks it for
-problems, or converts it to another format. The file can be WebVTT, SRT or
+problems, lists the captions that overlap on screen, or converts it to
+another format. The file can be WebVTT, SRT or
 SBV, read in the format of its extension: ``.srt`` for SRT, ``.sbv`` for SBV
 and any other for WebVTT, unless ``--format`` is given.
 
@@ -79,6 +82,17 @@ which finds other problems such as cue settings that are not valid, and its
 first error is printed as ``PATH: line N: error: MESSAGE``. Nothing is
 printed when there is no problem.
 
+``occlusions`` lists the pairs of captions that are shown at the same time
+and cover a common area of the screen, one per line, as ``captions N and M
+overlap START --> END in REGION at X,Y WIDTHxHEIGHT``, with the captions
+numbered from 1 and the area in pixels. The captions are placed in a
+viewport of a fixed size, with the cue settings and the regions resolved
+to the same coordinates in pixels: the line and position percentages and
+the line numbers share them, and vertical captions are placed on their own
+axis. Pairs that only touch are not listed: a caption that starts when the
+other ends does not overlap it in time, and boxes that only share an edge
+do not overlap on screen. Nothing is printed when no captions overlap.
+
 ``convert`` writes the captions in ``PATH`` in the format given with ``-t``,
 or else in the format of the extension of ``OUTPUT``, or else as WebVTT, to
 standard output in UTF-8 or to ``OUTPUT``. Reading SRT turns its ``font``
@@ -107,6 +121,9 @@ Commands
 
 ``validate``
     Check the captions at ``PATH`` for problems.
+
+``occlusions``
+    List the pairs of captions at ``PATH`` that overlap on screen.
 
 ``convert``
     Convert the captions at ``PATH`` to another format.
@@ -217,6 +234,17 @@ Sync options
 ``-o OUTPUT``, ``--output OUTPUT``
     File where the synchronized captions are written, as with ``shift``.
     Default: standard output.
+
+Occlusions options
+~~~~~~~~~~~~~~~~~~
+
+``--viewport WIDTHxHEIGHT``
+    Size of the viewport the captions are placed in, in pixels, such as
+    ``1280x720``. Default: ``1920x1080``.
+
+``--line-height PIXELS``
+    Height of a line of text in pixels, used for the lines of the captions
+    and the height of the regions. Default: 5.33% of the viewport height.
 
 Convert options
 ~~~~~~~~~~~~~~~

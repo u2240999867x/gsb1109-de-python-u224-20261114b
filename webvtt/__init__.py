@@ -7,10 +7,11 @@ from . import segmenter
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
+from .quality import LineBox, Overlap, Viewport, overlap_index  # noqa
 
 __all__ = [
     'WebVTT', 'Caption', 'CueSettings', 'ParseIssue', 'Region', 'Style',
-    'ValidationIssue'
+    'ValidationIssue', 'LineBox', 'Overlap', 'Viewport', 'overlap_index'
     ]
 
 read = WebVTT.read

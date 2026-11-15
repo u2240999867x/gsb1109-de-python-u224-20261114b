@@ -15,6 +15,7 @@ from collections.abc import Callable, Sequence
 from . import __version__, segmenter
 from .webvtt import WebVTT, _FORMAT_EXTENSIONS, _FORMATS
 from .models import Timestamp, _sync_mapping, _to_timestamp
+from .quality import Viewport, overlap_index
 from .errors import (
     MalformedFileError, MalformedCaptionError, MissingFilenameError
     )
@@ -34,14 +35,15 @@ _EXTENSION_FORMATS = {
 
 def main(argv: Sequence[str] | None = None) -> None:
     """
-    Segment, shift, sync, validate or convert captions from command line.
+    Segment, shift, sync, validate, index or convert captions from command
+    line.
 
     :param argv: command line arguments
     """
     arguments = argparse.ArgumentParser(
         prog='webvtt',
-        description=('Segment, shift, sync, validate and convert WebVTT, '
-                     'SRT and SBV caption files.')
+        description=('Segment, shift, sync, validate, index and convert '
+                     'WebVTT, SRT and SBV caption files.')
         )
     arguments.add_argument(
         '--version',
@@ -207,6 +209,43 @@ def main(argv: Sequence[str] | None = None) -> None:
     _add_input_arguments(validate_command)
     validate_command.set_defaults(run=_validate)
 
+    occlusions_command = commands.add_parser(
+        'occlusions',
+        help='list the captions that overlap on screen',
+        description=(
+            'List the pairs of captions that are shown at the same time '
+            'and cover a common area of the screen, with the time and the '
+            'area of each overlap.'
+            ),
+        epilog=(
+            'The captions are placed in a viewport of a fixed size, with '
+            'the cue settings and the regions resolved to the same '
+            'coordinates in pixels: the line and position percentages and '
+            'the line numbers share them, and vertical captions are placed '
+            'on their own axis. Pairs that only touch are not listed: a '
+            'caption that starts when the other ends does not overlap it '
+            'in time, and boxes that only share an edge do not overlap on '
+            'screen.'
+            )
+        )
+    _add_input_arguments(occlusions_command)
+    occlusions_command.add_argument(
+        '--viewport',
+        metavar='WIDTHxHEIGHT',
+        type=_viewport,
+        default=Viewport(1920, 1080),
+        help=('viewport size in pixels, default: 1920x1080')
+        )
+    occlusions_command.add_argument(
+        '--line-height',
+        metavar='PIXELS',
+        type=_line_height,
+        default=None,
+        help=('height of a line of text in pixels, default: 5.33%% of the '
+              'viewport height')
+        )
+    occlusions_command.set_defaults(run=_occlusions)
+
     _add_convert_command(commands)
 
     args = arguments.parse_args(argv)
@@ -367,6 +406,18 @@ def _sync(args: argparse.Namespace) -> None:
     else:
         vtt.change_framerate(*args.fps)
     _write(vtt, args.output, _edited_format(args), keep_formatting=True)
+
+
+def _occlusions(args: argparse.Namespace) -> None:
+    """Run the occlusions command, printing one line per overlap."""
+    vtt = _read(args)
+    overlaps = overlap_index(
+        vtt.captions,
+        regions=vtt.regions,
+        viewport=args.viewport,
+        line_height=args.line_height
+        )
+    _write_stdout(''.join(f'{overlap}\n' for overlap in overlaps))
 
 
 def _convert(args: argparse.Namespace) -> None:
@@ -556,6 +607,28 @@ def _offset(value: str) -> float:
         raise argparse.ArgumentTypeError(f'invalid offset: {value!r}')
 
     return offset
+
+
+def _viewport(value: str) -> Viewport:
+    """Return the viewport of a command line argument as ``1920x1080``."""
+    width, separator, height = value.lower().partition('x')
+    try:
+        viewport = Viewport(float(width), float(height))
+    except ValueError:
+        separator = ''
+    if not separator or viewport.width <= 0 or viewport.height <= 0:
+        raise argparse.ArgumentTypeError(f'invalid viewport: {value!r}')
+
+    return viewport
+
+
+def _line_height(value: str) -> float:
+    """Return the height of a line of text of a command line argument."""
+    height = _number(value)
+    if not height > 0:
+        raise argparse.ArgumentTypeError(f'invalid line height: {value!r}')
+
+    return height
 
 
 def _position(value: str) -> str | float:
