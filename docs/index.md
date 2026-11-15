@@ -20,4 +20,5 @@ See [the repository README](https://github.com/workalendar/workalendar#available
   * [Class options](class-options.md)
   * [ISO Registry](iso-registry.md)
   * [iCal Export](ical.md)
+  * [Incremental settlement audit](settlement-audit.md)
 * [How to contribute](contributing.md)

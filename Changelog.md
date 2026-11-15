@@ -2,6 +2,7 @@
 
 ## master (unreleased)
 
+- New `workalendar.settlement` module: store each transaction's anchor date, offset rule and calendar version, diff two calendar versions and report only the transactions whose settlement date actually moves, with reasons; includes a record-by-record reconciliation against full recomputation on both calendars.
 - Coronation of His Majesty King Charles III Bank holiday in 2023 to the UK calendar.
 
 ## v17.0.0 (2023-01-01)
