@@ -4,6 +4,7 @@ __version__ = '0.8.0'
 
 from .webvtt import WebVTT
 from . import segmenter
+from . import packager
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
@@ -20,3 +21,4 @@ from_srt = WebVTT.from_srt
 from_sbv = WebVTT.from_sbv
 from_string = WebVTT.from_string
 segment = segmenter.segment
+pack = packager.pack

@@ -838,6 +838,84 @@ last segment.
 Segmentation is also available from the command line, see :doc:`cli`.
 
 
+Packaging multilingual segment releases
+---------------------------------------
+
+When a show is split into segments whose subtitles arrive in several
+languages and at different times, ``webvtt.packager`` publishes the longest
+consecutive prefix that can be played. Every required language of a segment
+must have a subtitle file or a receipt from the producer confirming that it
+has no dialogue; an empty file without such a receipt keeps the prefix from
+going further. Optional languages are added when they are ready and never
+hold a release back.
+
+The inbox has a folder per segment, with a subtitle file per language and an
+optional ``<language>.receipt.json`` sidecar containing
+``{"status": "no_dialogue"}``:
+
+.. code-block:: text
+
+    inbox/
+        segment1/
+            en.vtt
+            fr.vtt
+            de.vtt
+        segment2/
+            en.vtt
+            fr.webvtt
+            fr.receipt.json   # confirms segment 2 has no French dialogue
+
+The manifest describes the show, its segments and its required and optional
+languages. A run publishes the playable prefix, and the release can be
+rebuilt later from its manifest:
+
+.. code-block:: python
+
+    import json
+    import pathlib
+    import webvtt
+    from webvtt import packager
+
+    inbox = pathlib.Path('inbox')
+    for number in range(1, 3):
+        folder = inbox / f'segment{number}'
+        folder.mkdir(parents=True)
+        (folder / 'en.vtt').write_text(
+            'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhi\n'
+            )
+    (inbox / 'segment1' / 'fr.vtt').write_text(
+        'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nsalut\n'
+        )
+    # segment 2 has no French dialogue, confirmed by the producer
+    (inbox / 'segment2' / 'fr.receipt.json').write_text(
+        json.dumps({'status': 'no_dialogue'})
+        )
+
+    manifest = packager.SubtitleManifest(
+        show='show-1',
+        segment_count=2,
+        required_languages=('en', 'fr'),
+        optional_languages=('de',)
+        )
+    # or load it from JSON with packager.load_manifest('manifest.json')
+    result = webvtt.pack(inbox, 'output', manifest)
+    print(result.prefix)
+    # 2
+
+    # rebuild the release from its manifest and preserved files
+    packager.rebuild_release('output', 'rebuilt')
+
+Each run writes an immutable release folder under ``output/releases`` with
+the subtitle files of the playable prefix and a ``manifest.json`` listing
+every file and its SHA-256 hash, plus the segments added, replaced or removed
+since the previous release. A no-dialogue language is written as an empty
+WebVTT file. Re-running with the same inputs creates no new release, so the
+same batch of receipts never produces more than one version. An old release
+keeps its own snapshot, so a revised segment does not change it, and
+rebuilding an old release restores its old content. A rebuilt file whose hash
+no longer matches the release manifest raises ``ValueError``.
+
+
 Files with Byte Order Mark (BOM)
 --------------------------------
 

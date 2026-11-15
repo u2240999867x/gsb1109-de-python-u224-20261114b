@@ -62,6 +62,37 @@ Segmenting for HLS
 
   webvtt.segment('captions.vtt', 'output/path')
 
+Packaging multilingual segment releases
+---------------------------------------
+
+``webvtt.packager`` publishes the longest consecutive prefix of segments
+whose required languages have subtitles, or a producer receipt confirming
+that a segment has no dialogue. Empty files without a receipt hold the
+prefix back, optional languages never block a release, and every release is
+an immutable, rebuildable manifest with file hashes; re-running with the
+same inputs creates no new version.
+
+.. code-block:: python
+
+  import json
+  import pathlib
+  from webvtt import packager
+
+  inbox = pathlib.Path('inbox')
+  folder = inbox / 'segment1'
+  folder.mkdir(parents=True)
+  (folder / 'en.vtt').write_text(
+      'WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nhi\n'
+      )
+  (folder / 'fr.receipt.json').write_text(
+      json.dumps({'status': 'no_dialogue'})
+      )
+  manifest = packager.SubtitleManifest(
+      'show-1', 1, required_languages=('en', 'fr')
+      )
+  result = packager.pack(inbox, 'output', manifest)
+  print(result.prefix)
+
 Converting captions from other formats
 --------------------------------------
 
