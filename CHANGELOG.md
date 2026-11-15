@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Add `PDFStructTree.logical_text()`, reconstructing a document's (or page's) logical text from the structure tree: elements with an `ActualText` contribute that replacement once per element - even when their content spans lines or pages - while other elements contribute the text drawn on the page; an empty `ActualText` (decorative content) is kept distinct from no `ActualText` at all.
+- Add `PDFStructTree.review_term(term)`, auditing a search term against the logical text: it locates the glyphs each match replaces (across pages) and lists the decorative characters that never entered the logical text.
+- Add `Page.actual_text_spans` and the `actual_text_span` object attribute, exposing `ActualText` declared by inline marked-content sequences (stored once per span, like `mcid`/`tag`).
+
+### Fixed
+- Include structure elements whose content spans multiple pages in each affected page's structure tree (previously they were dropped from pages other than the one their `Pg` attribute points to).
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed

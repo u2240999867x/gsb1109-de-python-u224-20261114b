@@ -176,6 +176,9 @@ class PDFStructTree(Findable):
         self.role_map = resolve1(self.root.get("RoleMap", {}))
         self.class_map = resolve1(self.root.get("ClassMap", {}))
         self.children: List[PDFStructElement] = []
+        # The page each MCID of each element is actually on (keyed by
+        # id(element)), since an element's content can span pages
+        self._mcid_pages: Dict[int, List[Optional[int]]] = {}
 
         # If we have a specific page then we will work backwards from
         # its ParentTree - this is because structure elements could
@@ -416,6 +419,22 @@ class PDFStructTree(Findable):
         prune(root)
         self._resolve_children(s)
 
+    def _record_mcid(
+        self,
+        element: PDFStructElement,
+        mcid: int,
+        mcr: Optional[Dict[str, Any]],
+    ) -> None:
+        """Append an MCID to an element, remembering the page the
+        marked-content section is on (an element's content can span
+        multiple pages, even though the element itself has only one
+        `page_number`)."""
+        element.mcids.append(mcid)
+        page_number = element.page_number
+        if mcr is not None and self.page_dict is not None and "Pg" in mcr:
+            page_number = self.page_dict[mcr["Pg"].objid]
+        self._mcid_pages.setdefault(id(element), []).append(page_number)
+
     def _resolve_children(self, seen: Dict[str, Any]) -> None:
         """Resolve children starting from the tree root based on references we
         saw when traversing the structure tree.
@@ -443,16 +462,20 @@ class PDFStructTree(Findable):
             for child in children:
                 obj = resolve1(child)
                 if isinstance(obj, int):
-                    element.mcids.append(obj)
-                elif isinstance(obj, dict):
+                    self._record_mcid(element, obj, None)
+                elif isinstance(obj, dict) and ("MCID" in obj or "Obj" in obj):
                     # Skip out-of-page MCIDS and OBJRs
                     if not self.on_parsed_page(obj):
                         continue
                     if "MCID" in obj:
-                        element.mcids.append(obj["MCID"])
-                    elif "Obj" in obj:
+                        self._record_mcid(element, obj["MCID"], obj)
+                    else:
                         child = obj["Obj"]
-                # NOTE: if, not elif, in case of OBJR above
+                # NOTE: if, not elif, in case of OBJR above.  Structure
+                # elements are not filtered by page here: membership in
+                # `seen` decides, so that elements whose content spans
+                # multiple pages (and whose "Pg" may point to another
+                # page) are still included.
                 if isinstance(child, PDFObjRef):
                     child_element, _ = seen.get(repr(child), (None, None))
                     if child_element is not None:
@@ -508,3 +531,156 @@ class PDFStructTree(Findable):
             if not mcid_objs:
                 raise IndexError("No objects found")  # pragma: nocover
             return geometry.objects_to_bbox(mcid_objs)
+
+    def _own_mcids(
+        self, el: PDFStructElement
+    ) -> Iterator[Tuple[Optional[int], int]]:
+        """Yield (page_number, mcid) for an element's own MCIDs, using
+        the page each marked-content section is actually on."""
+        pages = self._mcid_pages.get(id(el))
+        for i, mcid in enumerate(el.mcids):
+            page_number = el.page_number
+            if pages is not None and i < len(pages):
+                page_number = pages[i]
+            yield page_number, mcid
+
+    def _subtree_mcids(
+        self, el: PDFStructElement
+    ) -> Iterator[Tuple[Optional[int], int]]:
+        """Like `_own_mcids`, but also including all descendants."""
+        yield from self._own_mcids(el)
+        for child in el.children:
+            yield from self._subtree_mcids(child)
+
+    def _get_chars_by_mcid(self) -> Dict[Tuple[Optional[int], int], List[T_obj]]:
+        """Map (page_number, mcid) to the chars of that marked-content
+        section, for the page(s) covered by this tree."""
+        if not hasattr(self, "_chars_by_mcid"):
+            chars_by_mcid: Dict[Tuple[Optional[int], int], List[T_obj]] = {}
+            pages: List[Tuple[Optional[int], "Page"]]
+            if self.page is not None:
+                pages = [(None, self.page)]
+            else:
+                pages = [(p.page_number, p) for p in self.pages.values()]
+            for page_number, page in pages:
+                for c in page.chars:
+                    mcid = c.get("mcid")
+                    if mcid is not None:
+                        chars_by_mcid.setdefault((page_number, mcid), []).append(c)
+            self._chars_by_mcid: Dict[Tuple[Optional[int], int], List[T_obj]] = (
+                chars_by_mcid
+            )
+        return self._chars_by_mcid
+
+    def _mcid_chars(self, page_number: Optional[int], mcid: int) -> List[T_obj]:
+        return self._get_chars_by_mcid().get((page_number, mcid), [])
+
+    def _logical_parts(self, elements: Iterable[PDFStructElement]) -> Iterator[str]:
+        for el in elements:
+            if el.actual_text is not None:
+                # The replacement text applies to the element's whole
+                # scope, so it is emitted exactly once, no matter how
+                # many lines or pages the element's content spans
+                yield el.actual_text
+                continue
+            for page_number, mcid in self._own_mcids(el):
+                yield "".join(c["text"] for c in self._mcid_chars(page_number, mcid))
+            yield from self._logical_parts(el.children)
+
+    def logical_text(self) -> str:
+        """Reconstruct the logical text of the document (or page), as
+        declared by the structure tree: elements with an `ActualText`
+        replacement contribute that replacement - once per element, no
+        matter how many lines or pages their content spans - while other
+        elements contribute the text actually drawn on the page.
+        Elements with an empty `ActualText` (as opposed to no
+        `ActualText` at all) contribute nothing.  Contributions are
+        joined with newlines.
+        """
+        parts = [part for part in self._logical_parts(self.children) if part != ""]
+        return "\n".join(parts)
+
+    def _decorative_chars(self) -> List[T_obj]:
+        """Chars on the tree's page(s) that do not enter the logical
+        text: untagged content, and content covered by an empty
+        `ActualText`."""
+        covered = set()
+        blanked = set()
+
+        def walk(el: PDFStructElement, blanking: bool) -> None:
+            if el.actual_text is not None:
+                blanking = el.actual_text == ""
+            for page_number, mcid in self._own_mcids(el):
+                covered.add((page_number, mcid))
+                if blanking:
+                    blanked.add((page_number, mcid))
+            for child in el.children:
+                walk(child, blanking)
+
+        for el in self.children:
+            walk(el, False)
+        decorative = []
+        pages: List[Tuple[Optional[int], "Page"]]
+        if self.page is not None:
+            pages = [(None, self.page)]
+        else:
+            pages = [(p.page_number, p) for p in self.pages.values()]
+        for page_number, page in pages:
+            for c in page.chars:
+                key = (page_number, c.get("mcid"))
+                if key in blanked or key not in covered:
+                    decorative.append(c)
+        return decorative
+
+    def _review_parts(
+        self, elements: Iterable[PDFStructElement]
+    ) -> Iterator[Tuple[PDFStructElement, Optional[str], List[T_obj]]]:
+        """Yield (element, text, chars) parts as they appear in the
+        logical text: an element with an `ActualText` contributes that
+        replacement (and its descendants contribute nothing of their
+        own), other elements contribute their own drawn text."""
+        for el in elements:
+            if el.actual_text is not None:
+                chars = [
+                    c
+                    for page_number, mcid in self._subtree_mcids(el)
+                    for c in self._mcid_chars(page_number, mcid)
+                ]
+                yield el, el.actual_text, chars
+            else:
+                chars = [
+                    c
+                    for page_number, mcid in self._own_mcids(el)
+                    for c in self._mcid_chars(page_number, mcid)
+                ]
+                yield el, None, chars
+                yield from self._review_parts(el.children)
+
+    def review_term(self, term: str) -> Dict[str, Any]:
+        """Audit a search term against the logical text.
+
+        Returns a dict with the reconstructed `logical_text`; a list of
+        `matches`, one per structure element whose logical text (its
+        `ActualText` replacement if it declares one, otherwise the text
+        drawn on the page) contains `term`, together with all the glyphs
+        the matched text stands for; and the `decorative_chars` on the
+        tree's page(s) that do not enter the logical text at all.
+        """
+        matches: List[Dict[str, Any]] = []
+        if term:
+            for el, actual_text, chars in self._review_parts(self.children):
+                if actual_text is not None:
+                    text = actual_text
+                else:
+                    text = "".join(c["text"] for c in chars)
+                if term in text:
+                    matches.append(
+                        {"element": el, "actual_text": actual_text, "chars": chars}
+                    )
+        return {
+            "term": term,
+            "found": bool(matches),
+            "logical_text": self.logical_text(),
+            "matches": matches,
+            "decorative_chars": self._decorative_chars(),
+        }

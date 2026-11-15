@@ -166,6 +166,7 @@ Each object is represented as a simple Python `dict`, with the following propert
 |`matrix`| The "current transformation matrix" for this character. (See below for details.)|
 |`mcid`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section ID for this character if any (otherwise `None`). *Experimental attribute.*|
 |`tag`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section tag for this character if any (otherwise `None`). *Experimental attribute.*|
+|`actual_text_span`| The index (in `page.actual_text_spans`) of the [ActualText](https://ghostscript.com/~robin/pdf_reference17.pdf#page=941) span covering this character if any (otherwise `None`). *Experimental attribute.*|
 |`ncs`|TKTK|
 |`stroking_pattern`|TKTK|
 |`non_stroking_pattern`|TKTK|
@@ -201,6 +202,7 @@ my_char_rotation = my_char_ctm.skew_x
 |`non_stroking_color`|The non-stroking color specified for the line’s path. See [docs/colors.md](docs/colors.md) for details.|
 |`mcid`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section ID for this line if any (otherwise `None`). *Experimental attribute.*|
 |`tag`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section tag for this line if any (otherwise `None`). *Experimental attribute.*|
+|`actual_text_span`| The index (in `page.actual_text_spans`) of the [ActualText](https://ghostscript.com/~robin/pdf_reference17.pdf#page=941) span covering this line if any (otherwise `None`). *Experimental attribute.*|
 |`object_type`| "line"|
 
 #### `rect` properties
@@ -222,6 +224,7 @@ my_char_rotation = my_char_ctm.skew_x
 |`non_stroking_color`|The rectangle’s fill color. See [docs/colors.md](docs/colors.md) for details.|
 |`mcid`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section ID for this rect if any (otherwise `None`). *Experimental attribute.*|
 |`tag`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section tag for this rect if any (otherwise `None`). *Experimental attribute.*|
+|`actual_text_span`| The index (in `page.actual_text_spans`) of the [ActualText](https://ghostscript.com/~robin/pdf_reference17.pdf#page=941) span covering this rect if any (otherwise `None`). *Experimental attribute.*|
 |`object_type`| "rect"|
 
 #### `curve` properties
@@ -247,6 +250,7 @@ my_char_rotation = my_char_ctm.skew_x
 |`dash`|A `([dash_array], dash_phase)` tuple describing the curve's dash style. See [Table 4.6 of the PDF specification](https://ghostscript.com/~robin/pdf_reference17.pdf#page=218) for details.|
 |`mcid`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section ID for this curve if any (otherwise `None`). *Experimental attribute.*|
 |`tag`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section tag for this curve if any (otherwise `None`). *Experimental attribute.*|
+|`actual_text_span`| The index (in `page.actual_text_spans`) of the [ActualText](https://ghostscript.com/~robin/pdf_reference17.pdf#page=941) span covering this curve if any (otherwise `None`). *Experimental attribute.*|
 |`object_type`| "curve"|
 
 #### Derived properties
@@ -277,6 +281,7 @@ Additionally, both `pdfplumber.PDF` and `pdfplumber.Page` provide access to seve
 |`name`| "The name by which this image XObject is referenced in the XObject subdictionary of the current resource dictionary." [🔗](https://ghostscript.com/~robin/pdf_reference17.pdf#page=340) |
 |`mcid`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section ID for this image if any (otherwise `None`). *Experimental attribute.*|
 |`tag`| The [marked content](https://ghostscript.com/~robin/pdf_reference17.pdf#page=850) section tag for this image if any (otherwise `None`). *Experimental attribute.*|
+|`actual_text_span`| The index (in `page.actual_text_spans`) of the [ActualText](https://ghostscript.com/~robin/pdf_reference17.pdf#page=941) span covering this image if any (otherwise `None`). *Experimental attribute.*|
 |`object_type`| "image"|
 
 ### Obtaining higher-level layout objects via `pdfminer.six`

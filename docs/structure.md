@@ -74,3 +74,46 @@ The `find_all` method works rather like the same method in
 [BeautifulSoup](https://beautiful-soup-4.readthedocs.io/en/latest/#searching-the-tree) -
 it takes an element name, a regular expression, or a matching
 function.
+
+## Logical text and `ActualText`
+
+Structure elements and marked-content sequences can declare
+`ActualText`, replacement text meant for searching, copying, and
+screen readers, which differs from the glyphs actually drawn on the
+page.  `pdfplumber` keeps the two apart: `page.extract_text()` and
+friends always return the drawn text, while the `PDFStructTree`
+provides the logical view:
+
+    stree = PDFStructTree(pdf)          # or PDFStructTree(pdf, page)
+    print(stree.logical_text())
+
+`logical_text()` interprets each `ActualText` according to the scope
+of its tag: the replacement applies to the element's whole subtree and
+is emitted exactly once, even if the element's content spans several
+lines or pages.  An *empty* `ActualText` (which suppresses decorative
+content) is treated differently from no `ActualText` at all (which
+leaves the drawn text in place).
+
+To audit a search term against the logical text, use `review_term`:
+
+    review = stree.review_term("Chapter 2: page 10")
+    for match in review["matches"]:
+        print(match["actual_text"], len(match["chars"]))
+    print(review["decorative_chars"])
+
+Each match gives the structure `element`, its `actual_text` (`None`
+when the term matched drawn text directly), and the `chars` - the
+glyphs the matched text stands for, located on whatever pages they
+were drawn.  `decorative_chars` lists the characters on the tree's
+pages that never entered the logical text: untagged content and
+content blanked by an empty `ActualText`.
+
+`ActualText` can also appear inline, in marked-content sequences
+without any structure element.  Those spans are available per page:
+
+    page.actual_text_spans   # e.g. [{"tag": "Span", "actual_text": "ffi"}]
+
+Objects drawn within such a sequence reference their span through
+their `actual_text_span` attribute (the index in
+`page.actual_text_spans`, or `None`), so the replacement text is
+stored only once per span.

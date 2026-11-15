@@ -28,6 +28,7 @@ from pdfminer.layout import (
 )
 from pdfminer.pdfinterp import PDFPageInterpreter, PDFStackT
 from pdfminer.pdfpage import PDFPage
+from pdfminer.pdftypes import resolve1
 from pdfminer.psparser import PSLiteral
 
 from . import utils
@@ -70,6 +71,7 @@ ALL_ATTRS = set(
         "name",
         "mcid",
         "tag",
+        "actual_text_span",
     ]
 )
 
@@ -114,6 +116,16 @@ class PDFPageAggregatorWithMarkedContent(PDFPageAggregator):
     cur_mcid: Optional[int] = None
     cur_tag: Optional[str] = None
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        # One entry per open marked-content tag: the index of the
+        # ActualText span opened by that tag, if any
+        self.tag_stack: List[Optional[int]] = []
+        # ActualText spans declared by marked-content sequences on this
+        # page, in order of appearance; the replacement text is stored
+        # once per span, no matter how many objects it covers
+        self.actual_text_spans: List[Dict[str, Any]] = []
+
     def begin_tag(self, tag: PSLiteral, props: Optional[PDFStackT] = None) -> None:
         """Handle beginning of tag, setting current MCID if any."""
         self.cur_tag = decode_text(tag.name)
@@ -121,11 +133,31 @@ class PDFPageAggregatorWithMarkedContent(PDFPageAggregator):
             self.cur_mcid = props["MCID"]
         else:
             self.cur_mcid = None
+        span_index = None
+        if isinstance(props, dict) and "ActualText" in props:
+            # Note: an empty ActualText string is meaningful (the content
+            # is decorative) and is kept distinct from no ActualText at all
+            actual_text = decode_text(resolve1(props["ActualText"]))
+            span_index = len(self.actual_text_spans)
+            self.actual_text_spans.append(
+                {"tag": self.cur_tag, "actual_text": actual_text}
+            )
+        self.tag_stack.append(span_index)
 
     def end_tag(self) -> None:
         """Handle beginning of tag, clearing current MCID."""
         self.cur_tag = None
         self.cur_mcid = None
+        if self.tag_stack:
+            self.tag_stack.pop()
+
+    @property
+    def cur_actual_text_span(self) -> Optional[int]:
+        """The innermost open ActualText span, if any."""
+        for span_index in reversed(self.tag_stack):
+            if span_index is not None:
+                return span_index
+        return None
 
     def tag_cur_item(self) -> None:
         """Add current MCID to what we hope to be the most recent object created
@@ -140,6 +172,7 @@ class PDFPageAggregatorWithMarkedContent(PDFPageAggregator):
             cur_obj = self.cur_item._objs[-1]
             cur_obj.mcid = self.cur_mcid  # type: ignore
             cur_obj.tag = self.cur_tag  # type: ignore
+            cur_obj.actual_text_span = self.cur_actual_text_span  # type: ignore
 
     def render_char(self, *args, **kwargs) -> float:  # type: ignore
         """Hook for rendering characters, adding the `mcid` attribute."""
@@ -267,7 +300,23 @@ class Page(Container):
         except Exception as e:
             raise PdfminerException(e)
         self._layout: LTPage = device.get_result()
+        self._actual_text_spans: List[Dict[str, Any]] = device.actual_text_spans
         return self._layout
+
+    @property
+    def actual_text_spans(self) -> List[Dict[str, Any]]:
+        """ActualText spans declared by marked-content sequences on this
+        page, in order of appearance.  Each span is a dict with the
+        marked-content `tag` and the replacement `actual_text` (which may
+        be an empty string, meaning the content is decorative).  Objects
+        drawn within a span reference it via their `actual_text_span`
+        attribute, so the replacement text is stored only once per span.
+        """
+        if not self.is_original:
+            return self.root_page.actual_text_spans
+        if not hasattr(self, "_actual_text_spans"):
+            _ = self.layout
+        return self._actual_text_spans
 
     @property
     def annots(self) -> T_obj_list:
