@@ -4,13 +4,15 @@ __version__ = '0.8.0'
 
 from .webvtt import WebVTT
 from . import segmenter
+from .align import Alignment, Anchor, TranscriptWord, align_transcript
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
 
 __all__ = [
     'WebVTT', 'Caption', 'CueSettings', 'ParseIssue', 'Region', 'Style',
-    'ValidationIssue'
+    'ValidationIssue', 'TranscriptWord', 'Anchor', 'Alignment',
+    'align_transcript'
     ]
 
 read = WebVTT.read

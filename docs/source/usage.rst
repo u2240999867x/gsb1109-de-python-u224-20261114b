@@ -497,6 +497,96 @@ when the difference grows along the video.
 Synchronizing is also available from the command line, see :doc:`cli`.
 
 
+Aligning a transcript with captions
+-----------------------------------
+
+A transcript with a coarse time for each word can be aligned with captions
+whose cues have exact start and end times. Build the words of the transcript
+with :class:`~webvtt.align.TranscriptWord`, whose times are in milliseconds,
+or use :meth:`~webvtt.align.TranscriptWord.from_times` to give timestamp
+strings, ``Timestamp`` objects, numbers of seconds or ``timedelta`` objects:
+
+.. code-block:: python
+
+    from webvtt import Caption
+    from webvtt.align import TranscriptWord
+
+    TranscriptWord.from_times('roger', '00:00:01.000', '00:00:01.200')
+    # TranscriptWord(text='roger', start=1000, end=1200)
+
+``align_transcript`` keeps the order of both records: a transcript word is
+associated with at most one caption, the associations never cross, and one
+caption may keep the contribution of several words, as when a human subtitle
+joins two replies in a single cue. A word matches a caption when their texts
+match, ignoring case, punctuation and cue tags, and their times overlap or
+are within the tolerance, one second by default:
+
+.. code-block:: python
+
+    from webvtt.align import align_transcript
+
+    words = [
+        TranscriptWord('roger', 1000, 1200),
+        TranscriptWord('roger', 1500, 1700),
+        TranscriptWord('roger', 2000, 2200),
+        ]
+    captions = [
+        Caption(1.0, 1.8, 'roger roger'),
+        Caption(2.0, 2.3, 'roger'),
+        ]
+
+    # the first and the third reply are confirmed, the middle one is not
+    alignments = align_transcript(
+        words, captions, anchors=[(0, 0), (2, 1)]
+        )
+    [(a.word_index, a.caption_index) for a in alignments]
+    # [(0, 0), (2, 1)]
+
+The anchors are confirmed associations, given as
+:class:`~webvtt.align.Anchor` instances or ``(word, caption)`` index pairs.
+They split the records into ranges, and an association inside a range is
+returned as automatic only when the surrounding anchors uniquely determine
+it. The middle ``roger`` above could belong to either cue, so it is left
+unlinked instead of being guessed. It is associated automatically as soon as
+the times leave a single possible cue, and a later word is aligned on its
+own when it is unambiguous:
+
+.. code-block:: python
+
+    from datetime import timedelta
+
+    words.append(TranscriptWord('out', 3000, 3200))
+    captions.append(Caption(3.0, 3.4, 'over and out'))
+
+    alignments = align_transcript(
+        words,
+        captions,
+        tolerance=timedelta(milliseconds=500),
+        anchors=[(0, 0), (2, 1)]
+        )
+    [(a.word_index, a.caption_index, a.automatic) for a in alignments]
+    # [(0, 0, False), (2, 1, False), (3, 2, True)]
+
+Different wordings are handled with an equivalence table, which is
+undirected, so ``okay`` matches a caption reading ``OK``:
+
+.. code-block:: python
+
+    alignments = align_transcript(
+        [TranscriptWord('okay', 3000, 3200)],
+        [Caption(3.0, 3.3, 'OK')],
+        equivalents={'okay': 'OK'}
+        )
+    [(a.word_index, a.caption_index) for a in alignments]  # [(0, 0)]
+
+The indexes are positions in the word and caption sequences, never the line
+numbers or identifiers of the files, so moving a record to another file or
+renumbering the cues does not change an alignment. Each
+:class:`~webvtt.align.Alignment` gives the two indexes, whether it comes from
+an anchor or was found automatically, and ``time_offset``, the caption start
+minus the word start in milliseconds.
+
+
 Timestamps
 ----------
 
