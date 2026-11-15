@@ -38,6 +38,26 @@ serialization-related functions are available:
 .. autofunction:: serialize_identifier
 
 
+Custom properties
+-----------------
+
+These optional helpers resolve ``var()`` references and select resource URLs
+from declarations that have already been matched to a component.  They keep
+the stylesheet base URL of every token, so a URL supplied by a custom property
+in another stylesheet is resolved against that stylesheet.
+
+.. module:: tinycss2.variables
+.. autofunction:: resolve_variables
+.. autofunction:: resolve_declaration
+.. autofunction:: resolve_resource
+.. autofunction:: cascade_custom_properties
+.. autoclass:: Resolver
+   :members:
+.. autoclass:: Declaration
+.. autoclass:: Resolution
+.. autoclass:: FallbackUsage
+
+
 Color Level 3
 -------------
 

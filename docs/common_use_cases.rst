@@ -96,3 +96,42 @@ give the same serialization as the original string.
 
    print(rule.serialize())
    # 'body div { width: 50% }'
+
+
+Resolving Custom Properties
+---------------------------
+
+When declarations matched to a component are already known, the helpers in
+:mod:`tinycss2.variables` select the winner, substitute ``var()`` references,
+and report which variables and fallbacks were used.  URLs keep the base URL of
+the stylesheet that supplied them.
+
+.. code-block:: python
+
+   from tinycss2.variables import Declaration, resolve_resource
+
+   declarations = [
+       Declaration('background-image', 'url(grey.png)',
+                   'https://example.com/css/base.css'),
+       Declaration('background-image', 'var(--brand)',
+                   'https://example.com/css/product.css'),
+   ]
+   custom_properties = [
+       Declaration('--brand', 'url(brand.png)',
+                   'https://cdn.example.com/theme/tokens.css'),
+   ]
+
+   resolution = resolve_resource(
+       declarations, custom_properties, name='background-image')
+   resolution.url
+   # 'https://cdn.example.com/theme/brand.png'
+   resolution.used_variables
+   # ('--brand',)
+   resolution.used_fallbacks
+   # ()
+
+A fallback is reported only when it was actually used; URLs in unused
+fallbacks and in losing declarations are not included in
+:attr:`~tinycss2.variables.Resolution.urls`.  Self and mutual references make
+the value invalid, and an invalid value can fall back to another value.
+

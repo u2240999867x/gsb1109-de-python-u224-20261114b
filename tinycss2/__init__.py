@@ -14,5 +14,8 @@ from .parser import (  # noqa
     parse_one_declaration, parse_one_rule, parse_rule_list, parse_stylesheet)
 from .serializer import serialize, serialize_identifier  # noqa
 from .tokenizer import parse_component_value_list  # noqa
+from .variables import (  # noqa
+    Resolution, Resolver, cascade_custom_properties, resolve_declaration,
+    resolve_resource, resolve_variables)
 
 VERSION = __version__ = '1.5.1'
