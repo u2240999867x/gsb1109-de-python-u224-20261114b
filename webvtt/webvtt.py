@@ -12,6 +12,7 @@ from collections.abc import Generator, Iterable, Iterator, Sequence
 from . import vtt, utils
 from . import srt
 from . import sbv
+from . import exposure as _exposure
 from .models import (
     Caption,
     ParseIssue,
@@ -962,6 +963,108 @@ class WebVTT:
         # stable, so the issues of a caption keep the order above
         issues.sort(key=lambda issue: issue.index)
         return issues
+
+    def region_exposures(
+            self,
+            start: _Position | None = None,
+            end: _Position | None = None,
+            *,
+            line_counts: _exposure._LineCounts = None
+            ) -> list[_exposure.RegionExposure]:
+        """
+        Return the line exposure of the captions of every region.
+
+        A region shows a fixed number of lines, and the lines of a caption
+        can be pushed out before the caption ends by the lines of a later
+        caption in the same region. The lines of each region are simulated
+        on their own, in the order of the captions, so a caption in another
+        region never pushes a line out of this one and a caption without a
+        region is not shown in one.
+
+        :param start: start of the window, a timestamp string, a
+            `Timestamp`, a number of seconds or a ``timedelta``, or None
+            for no start, which begins at the earliest line
+        :param end: end of the window, as the start, or None for no end,
+            which lasts until the latest line
+        :param line_counts: how many lines each caption takes when rendered,
+            as in `webvtt.exposure.region_exposures`
+        :returns: a `webvtt.exposure.RegionExposure` for each region of
+            ``regions``, in their order
+
+        :raises ValueError: if the start of the window is after its end, or
+            a count is negative or there are fewer counts than captions
+        :raises TypeError: if a count is not an integer
+        :raises MalformedCaptionError: if a bound of the window is not valid
+        """
+        return _exposure.region_exposures(
+            self.captions, self.regions, start=start, end=end,
+            line_counts=line_counts
+            )
+
+    def region_exposure(
+            self,
+            region: str | Region,
+            start: _Position | None = None,
+            end: _Position | None = None,
+            *,
+            line_counts: _exposure._LineCounts = None
+            ) -> _exposure.RegionExposure:
+        """
+        Return the line exposure of the captions of a single region.
+
+        :param region: the region, or the identifier of one of ``regions``
+        :param start: start of the window, or None for no start
+        :param end: end of the window, or None for no end
+        :param line_counts: how many lines each caption takes when rendered,
+            as in `webvtt.exposure.region_exposures`
+        :returns: a `webvtt.exposure.RegionExposure`
+
+        :raises ValueError: if no region has that identifier, if the start
+            of the window is after its end, or a count is negative or there
+            are fewer counts than captions
+        :raises TypeError: if a count is not an integer
+        :raises MalformedCaptionError: if a bound of the window is not valid
+        """
+        if isinstance(region, str):
+            for candidate in self.regions:
+                if candidate.id == region:
+                    region = candidate
+                    break
+            else:
+                raise ValueError(f'Region {region!r} is not defined')
+        return _exposure.region_exposure(
+            region, self.captions, start=start, end=end,
+            line_counts=line_counts
+            )
+
+    def line_exposures(
+            self,
+            start: _Position | None = None,
+            end: _Position | None = None,
+            *,
+            line_counts: _exposure._LineCounts = None
+            ) -> list[_exposure.LineExposure]:
+        """
+        Return the line exposure of the captions of every region, in one list.
+
+        The lines are in the order of the regions, and by time, caption order
+        and line order within each region.
+
+        :param start: start of the window, or None for no start
+        :param end: end of the window, or None for no end
+        :param line_counts: how many lines each caption takes when rendered,
+            as in `webvtt.exposure.region_exposures`
+        :returns: the `webvtt.exposure.LineExposure` of every visible line
+
+        :raises ValueError: if the start of the window is after its end, or
+            a count is negative or there are fewer counts than captions
+        :raises TypeError: if a count is not an integer
+        :raises MalformedCaptionError: if a bound of the window is not valid
+        """
+        return _exposure.line_exposures(
+            self.captions, self.regions, start=start, end=end,
+            line_counts=line_counts
+            )
 
     @property
     def total_length(self) -> float:

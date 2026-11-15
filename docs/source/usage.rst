@@ -1004,6 +1004,96 @@ regions are not included.
 Removing or renaming a region does not update the captions that use it.
 
 
+Line exposure in regions
+------------------------
+
+A region shows a fixed number of lines at once, and a line can stop being
+visible before the caption it belongs to ends. A caption of ten seconds in
+a region with one line is pushed out after three seconds when another
+caption of the same region starts, because the region shows the newest
+line. ``region_exposures`` simulates that rendering and gives the time each
+line is actually visible and the event that ends it:
+
+.. code-block:: python
+
+    import webvtt
+
+    vtt = webvtt.read('captions.vtt')
+
+    for report in vtt.region_exposures():
+        print(report.region_id, report.lines, report.scrolling)
+
+        for line in report:
+            # (start, end, exit, caption index, line index)
+            print(line.start, line.end, line.exit,
+                  line.caption_index, line.line_index)
+
+        print(report.total_duration, report.within_limit)
+
+A line exposure has the ``start`` and ``end`` of its visible time,
+``exit`` and ``exit_time`` for the event that ends it, the ``text`` of the
+line, the ``caption_index`` and ``line_index`` it comes from, and
+``displaced_by`` for the caption that pushed it out. The ``exit`` is
+``end`` when the caption ends, ``scroll`` when newer lines of the same
+region push it out, ``overflow`` for a line that does not fit in a region
+that does not scroll, and ``window`` when a requested window ends first.
+``exit_reason`` and ``exit_time`` keep the real event, even when the
+window cuts the visible time short.
+
+Each region is simulated on its own, so a caption in another region never
+pushes a line out of this one. Captions that start at the same time are
+added in the order of the captions, and a caption that ends frees its lines
+before the captions starting at that time are added. A region shows 3 lines
+when it has no ``lines`` setting, and a region that does not scroll keeps
+the lines it has, so new lines that do not fit are never visible. Those are
+reported in ``report.overflows``, with a visible time of no length.
+
+Limit the report to a time range, as for ``iter_slice``:
+
+.. code-block:: python
+
+    for report in vtt.region_exposures('00:00:01.000', '00:00:05.000'):
+        for line in report:
+            print(line.start, line.end, line.exit)
+
+Within a window, the lines shown together are never more than the lines of
+the region, so their total exposure cannot exceed the lines of the region
+times the length of the window. ``report.total_duration`` and
+``report.within_limit`` show that for each region and window.
+
+The number of lines a caption takes when rendered can be given when a line
+wraps, as a sequence or mapping by the index of the caption, or a function
+of the caption:
+
+.. code-block:: python
+
+    import textwrap
+    import webvtt
+
+    vtt = webvtt.from_string(textwrap.dedent("""\
+        WEBVTT
+
+        REGION
+        id:fred
+        lines:2
+        scroll:up
+
+        00:00:00.000 --> 00:00:10.000 region:fred
+        first
+
+        00:00:03.000 --> 00:00:08.000 region:fred
+        second
+        """).strip()
+        )
+    report = vtt.region_exposure('fred', line_counts=[2, 1])
+    len(report.exposures)  # 3
+
+The text of a rendered line that has no line of its own, from a line that
+wrapped, is empty. A caption that takes no line is not shown. The
+``exposure`` command of the CLI prints the same report as TSV, see
+:doc:`cli`.
+
+
 WebVTT header
 -------------
 

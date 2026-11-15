@@ -16,6 +16,8 @@ Synopsis
     webvtt sync PATH (-p FROM TO -p FROM TO ... | --fps FROM TO) [-o OUTPUT]
                 [INPUT OPTIONS]
     webvtt validate PATH [INPUT OPTIONS]
+    webvtt exposure PATH [-w START END] [-r ID] [--overflows]
+                    [--line-counts N] [INPUT OPTIONS]
     webvtt convert PATH [-o OUTPUT] [-t FORMAT] [--keep-formatting]
                    [INPUT OPTIONS]
     webvtt -h
@@ -26,7 +28,8 @@ Description
 
 ``webvtt`` segments a caption file for `HTTP Live Streaming`_ (HLS),
 shifts or synchronizes the timestamps of its captions, checks it for
-problems, or converts it to another format. The file can be WebVTT, SRT or
+problems, reports how long each line is visible in its region, or converts
+it to another format. The file can be WebVTT, SRT or
 SBV, read in the format of its extension: ``.srt`` for SRT, ``.sbv`` for SBV
 and any other for WebVTT, unless ``--format`` is given.
 
@@ -79,6 +82,20 @@ which finds other problems such as cue settings that are not valid, and its
 first error is printed as ``PATH: line N: error: MESSAGE``. Nothing is
 printed when there is no problem.
 
+``exposure`` prints how long each line of a caption is visible in its
+region, as one TSV row per line. A region shows the number of lines of its
+``lines`` setting, 3 if it has none, and a caption starting later in the
+same region adds its lines below them: in a region with ``scroll:up`` the
+oldest lines are pushed out, so a caption can be visible for less time than
+its end suggests, while in a region that does not scroll the lines that do
+not fit are never visible. Each region is simulated on its own, so a caption
+in another region never pushes a line out of this one, and captions that
+start at the same time are added in the order of the file. The fields are
+the region, the index of the caption and of the line from 0, the text of
+the line, the start and end of the visible time, the event that ends it
+(``end``, ``scroll``, ``overflow`` or ``window``), when the line leaves the
+region, and the index of the caption that pushed it out, or ``-``.
+
 ``convert`` writes the captions in ``PATH`` in the format given with ``-t``,
 or else in the format of the extension of ``OUTPUT``, or else as WebVTT, to
 standard output in UTF-8 or to ``OUTPUT``. Reading SRT turns its ``font``
@@ -107,6 +124,9 @@ Commands
 
 ``validate``
     Check the captions at ``PATH`` for problems.
+
+``exposure``
+    Report how long each line of a caption is visible in its region.
 
 ``convert``
     Convert the captions at ``PATH`` to another format.
@@ -218,6 +238,28 @@ Sync options
     File where the synchronized captions are written, as with ``shift``.
     Default: standard output.
 
+Exposure options
+~~~~~~~~~~~~~~~~
+
+``-w START END``, ``--window START END``
+    Only report the lines visible in this range, as timestamps or numbers of
+    seconds. A line still visible after ``END`` is cut there and its event
+    is ``window``. Default: from the first line to the last one.
+
+``-r ID``, ``--region ID``
+    Only report the lines of the region with that identifier. Repeat it for
+    more regions. Default: every region.
+
+``--overflows``
+    Also report the lines that do not fit in a region that does not scroll,
+    which are never visible, with a visible time of no length.
+
+``--line-counts N``
+    Lines the next caption takes when rendered, when it is not the number of
+    lines of its text, such as a line that wraps. Repeat it for each
+    caption, in the order of the file, with ``0`` for a caption that takes
+    no line. Default: the lines of the text of each caption.
+
 Convert options
 ~~~~~~~~~~~~~~~
 
@@ -253,7 +295,8 @@ Exit status
         webvtt: error: captions.vtt: not a valid WebVTT file
 
 For ``validate``, ``1`` is also the status when the file has errors, which
-are printed to standard output.
+are printed to standard output. For ``exposure``, it is also an error when
+a region given with ``--region`` is not defined.
 
 ``2``
     Invalid command line arguments, such as an offset that is not a number,
@@ -444,9 +487,10 @@ Windows-1252 from standard input:
 See also
 --------
 
-The same segmentation, shifting, synchronizing, validation and conversion
-are available from Python with ``webvtt.segment()``, ``WebVTT.shift()``,
-``WebVTT.sync()``, ``WebVTT.change_framerate()``, ``WebVTT.validate()``,
-``webvtt.from_srt()``, ``webvtt.from_sbv()``, ``WebVTT.save_as_srt()`` and
-``WebVTT.save_as_sbv()``, and ``WebVTT.sort()`` puts the captions in order
-of start time.
+The same segmentation, shifting, synchronizing, validation, exposure
+reporting and conversion are available from Python with
+``webvtt.segment()``, ``WebVTT.shift()``, ``WebVTT.sync()``,
+``WebVTT.change_framerate()``, ``WebVTT.validate()``,
+``WebVTT.region_exposures()``, ``webvtt.from_srt()``, ``webvtt.from_sbv()``,
+``WebVTT.save_as_srt()`` and ``WebVTT.save_as_sbv()``, and ``WebVTT.sort()``
+puts the captions in order of start time.

@@ -30,7 +30,7 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
 ..
 .TH "WEBVTT" "1" "Nov 08, 2026" "0.8.0" "webvtt-py"
 .SH NAME
-webvtt \- segment, shift, sync, validate and convert WebVTT, SRT and SBV captions
+webvtt \- segment, shift, sync, validate, report exposure and convert captions
 .SH SYNOPSIS
 .INDENT 0.0
 .INDENT 3.5
@@ -43,6 +43,8 @@ webvtt shift PATH OFFSET [\-o OUTPUT] [\-s TIME] [\-\-drop\-before\-zero]
 webvtt sync PATH (\-p FROM TO \-p FROM TO ... | \-\-fps FROM TO) [\-o OUTPUT]
             [INPUT OPTIONS]
 webvtt validate PATH [INPUT OPTIONS]
+webvtt exposure PATH [\-w START END] [\-r ID] [\-\-overflows]
+                [\-\-line\-counts N] [INPUT OPTIONS]
 webvtt convert PATH [\-o OUTPUT] [\-t FORMAT] [\-\-keep\-formatting]
                [INPUT OPTIONS]
 webvtt \-h
@@ -54,7 +56,8 @@ webvtt \-\-version
 .sp
 \fBwebvtt\fP segments a caption file for HTTP Live Streaming \%<https://\:datatracker\:.ietf\:.org/\:doc/\:html/\:draft-pantos-hls-rfc8216bis> (HLS),
 shifts or synchronizes the timestamps of its captions, checks it for
-problems, or converts it to another format. The file can be WebVTT, SRT or
+problems, reports how long each line is visible in its region, or converts
+it to another format. The file can be WebVTT, SRT or
 SBV, read in the format of its extension: \fB\&.srt\fP for SRT, \fB\&.sbv\fP for SBV
 and any other for WebVTT, unless \fB\-\-format\fP is given.
 .sp
@@ -105,6 +108,20 @@ which finds other problems such as cue settings that are not valid, and its
 first error is printed as \fBPATH: line N: error: MESSAGE\fP\&. Nothing is
 printed when there is no problem.
 .sp
+\fBexposure\fP prints how long each line of a caption is visible in its
+region, as one TSV row per line. A region shows the number of lines of its
+\fBlines\fP setting, 3 if it has none, and a caption starting later in the
+same region adds its lines below them: in a region with \fBscroll:up\fP the
+oldest lines are pushed out, so a caption can be visible for less time than
+its end suggests, while in a region that does not scroll the lines that do
+not fit are never visible. Each region is simulated on its own, so a
+caption in another region never pushes a line out of this one, and captions
+that start at the same time are added in the order of the file. The fields
+are the region, the index of the caption and of the line from 0, the text
+of the line, the start and end of the visible time, the event that ends it
+(\fBend\fP, \fBscroll\fP, \fBoverflow\fP or \fBwindow\fP), when the line leaves
+the region, and the index of the caption that pushed it out, or \fB\-\fP\&.
+.sp
 \fBconvert\fP writes the captions in \fBPATH\fP in the format given with \fB\-t\fP,
 or else in the format of the extension of \fBOUTPUT\fP, or else as WebVTT, to
 standard output in UTF\-8 or to \fBOUTPUT\fP\&. Reading SRT turns its \fBfont\fP
@@ -132,6 +149,9 @@ Synchronize the timestamps of the captions at \fBPATH\fP\&.
 .TP
 .B \fBvalidate\fP
 Check the captions at \fBPATH\fP for problems.
+.TP
+.B \fBexposure\fP
+Report how long each line of a caption is visible in its region.
 .TP
 .B \fBconvert\fP
 Convert the captions at \fBPATH\fP to another format.
@@ -242,6 +262,29 @@ rate. Times are multiplied by \fBFROM / TO\fP\&. Cannot be used with
 .B \fB\-o OUTPUT\fP, \fB\-\-output OUTPUT\fP
 File where the synchronized captions are written, as with \fBshift\fP\&.
 Default: standard output.
+.UNINDENT
+.SS Exposure options
+.INDENT 0.0
+.TP
+.B \fB\-w START END\fP, \fB\-\-window START END\fP
+Only report the lines visible in this range, as timestamps or numbers of
+seconds. A line still visible after \fBEND\fP is cut there and its event
+is \fBwindow\fP, as is one cut at \fBSTART\fP\&. Default: from the first
+line to the last one.
+.TP
+.B \fB\-r ID\fP, \fB\-\-region ID\fP
+Only report the lines of the region with that identifier. Repeat it for
+more regions. Default: every region.
+.TP
+.B \fB\-\-overflows\fP
+Also report the lines that do not fit in a region that does not scroll,
+which are never visible, with a visible time of no length.
+.TP
+.B \fB\-\-line\-counts N\fP
+Lines the next caption takes when rendered, when it is not the number of
+lines of its text, such as a line that wraps. Repeat it for each caption,
+in the order of the file, with \fB0\fP for a caption that takes no line.
+Default: the lines of the text of each caption.
 .UNINDENT
 .SS Convert options
 .INDENT 0.0
@@ -542,10 +585,12 @@ $ cat old.srt | webvtt convert \- \-f srt \-\-encoding cp1252 > new.vtt
 .UNINDENT
 .SH SEE ALSO
 .sp
-The same segmentation, shifting, synchronizing, validation and conversion
-are available from Python with \fBwebvtt.segment()\fP, \fBWebVTT.shift()\fP,
-\fBWebVTT.sync()\fP, \fBWebVTT.change_framerate()\fP, \fBWebVTT.validate()\fP,
-\fBwebvtt.from_srt()\fP, \fBwebvtt.from_sbv()\fP, \fBWebVTT.save_as_srt()\fP and
+The same segmentation, shifting, synchronizing, validation, exposure
+reporting and conversion are available from Python with
+\fBwebvtt.segment()\fP, \fBWebVTT.shift()\fP, \fBWebVTT.sync()\fP,
+\fBWebVTT.change_framerate()\fP, \fBWebVTT.validate()\fP,
+\fBWebVTT.region_exposures()\fP, \fBwebvtt.from_srt()\fP,
+\fBwebvtt.from_sbv()\fP, \fBWebVTT.save_as_srt()\fP and
 \fBWebVTT.save_as_sbv()\fP, and \fBWebVTT.sort()\fP puts the captions in order
 of start time.
 .SH Author

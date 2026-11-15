@@ -207,6 +207,60 @@ def main(argv: Sequence[str] | None = None) -> None:
     _add_input_arguments(validate_command)
     validate_command.set_defaults(run=_validate)
 
+    exposure_command = commands.add_parser(
+        'exposure',
+        help='show how long each line of a region is visible',
+        description=(
+            'Show the time each line of a caption is visible in its region.'
+            ),
+        epilog=(
+            'A region shows a fixed number of lines, so a caption can be '
+            'pushed out before it ends by a later caption in the same '
+            'region. Each line is printed as TSV, with the region, the '
+            'caption and line index from 0, the line text, the start and '
+            'end of its visible time, and the event that ends it: end, '
+            'scroll, overflow or window. The lines of a region that does '
+            'not scroll and do not fit are left out, unless --overflows is '
+            'given. Use --window to limit the report to a time range, which '
+            'counts as the window event when a line is still visible after '
+            'it.'
+            )
+        )
+    _add_input_arguments(exposure_command)
+    exposure_command.add_argument(
+        '-w', '--window',
+        metavar=('START', 'END'),
+        nargs=2,
+        type=_position,
+        help=('only report the lines visible in this range, as timestamps or '
+              'numbers of seconds')
+        )
+    exposure_command.add_argument(
+        '-r', '--region',
+        metavar='ID',
+        action='append',
+        dest='regions',
+        help=('only report the lines of this region; repeat it for more, '
+              'default: every region')
+        )
+    exposure_command.add_argument(
+        '--overflows',
+        action='store_true',
+        help=('also report the lines that do not fit in a region that does '
+              'not scroll, which are never visible')
+        )
+    exposure_command.add_argument(
+        '--line-counts',
+        metavar='N',
+        action='append',
+        type=_line_count,
+        dest='line_counts',
+        help=('lines each caption takes when rendered, in the order of the '
+              'captions; repeat it for each caption, default: the lines of '
+              'its text, with 0 for a caption that takes no line')
+        )
+    exposure_command.set_defaults(run=_exposure)
+
     _add_convert_command(commands)
 
     args = arguments.parse_args(argv)
@@ -391,6 +445,54 @@ def _edited_format(args: argparse.Namespace) -> str:
 def _path_format(path: str) -> str | None:
     """Return the format of the extension of a path, if it has one."""
     return _EXTENSION_FORMATS.get(os.path.splitext(path)[1].lower())
+
+
+def _exposure(args: argparse.Namespace) -> None:
+    """Run the exposure command."""
+    vtt = _read(args)
+    start, end = args.window if args.window else (None, None)
+    wanted = set(args.regions) if args.regions else None
+    reports = vtt.region_exposures(
+        start, end, line_counts=args.line_counts
+        )
+    if wanted is not None:
+        known = {region.id for region in vtt.regions}
+        missing = sorted(wanted - known)
+        if missing:
+            raise ValueError(f'Region {missing[0]!r} is not defined')
+        reports = [report for report in reports
+                   if report.region_id in wanted]
+
+    rows = [
+        _exposure_row(exposure)
+        for report in reports
+        for exposure in (
+            report.exposures + (report.overflows if args.overflows else [])
+            )
+        ]
+    _write_stdout(''.join(row + '\n' for row in rows))
+
+
+def _exposure_row(exposure: typing.Any) -> str:
+    """
+    Return a line exposure as a TSV row.
+
+    :param exposure: a `webvtt.exposure.LineExposure`
+    :returns: the fields separated by tabs
+    """
+    text = exposure.text.replace('\t', ' ').replace('\n', ' ')
+    return '\t'.join((
+        exposure.region_id,
+        str(exposure.caption_index),
+        str(exposure.line_index),
+        text,
+        exposure.start,
+        exposure.end,
+        exposure.exit,
+        str(exposure.exit_time),
+        ('-' if exposure.displaced_by is None
+         else str(exposure.displaced_by)),
+        ))
 
 
 def _validate(args: argparse.Namespace) -> None:
@@ -651,6 +753,21 @@ def _encoding(value: str) -> str:
         raise argparse.ArgumentTypeError(f'unknown encoding: {value!r}')
 
     return value
+
+
+def _line_count(value: str) -> int:
+    """Return the number of lines of a caption of a command line argument."""
+    try:
+        count = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f'invalid number of lines: {value!r}'
+            )
+    if count < 0:
+        raise argparse.ArgumentTypeError(
+            f'invalid number of lines: {value!r}'
+            )
+    return count
 
 
 def _timestamp(value: str) -> str:

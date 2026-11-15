@@ -14,6 +14,12 @@ webvtt.models
     :members:
     :inherited-members:
 
+webvtt.exposure
+---------------
+
+.. automodule:: webvtt.exposure
+    :members:
+
 webvtt.segmenter
 ----------------
 

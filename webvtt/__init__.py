@@ -4,13 +4,15 @@ __version__ = '0.8.0'
 
 from .webvtt import WebVTT
 from . import segmenter
+from . import exposure
+from .exposure import LineExposure, RegionExposure
 from .models import (  # noqa
     Caption, CueSettings, ParseIssue, Region, Style, ValidationIssue
     )
 
 __all__ = [
-    'WebVTT', 'Caption', 'CueSettings', 'ParseIssue', 'Region', 'Style',
-    'ValidationIssue'
+    'WebVTT', 'Caption', 'CueSettings', 'LineExposure', 'ParseIssue',
+    'Region', 'RegionExposure', 'Style', 'ValidationIssue', 'exposure'
     ]
 
 read = WebVTT.read
