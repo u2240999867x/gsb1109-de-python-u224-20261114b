@@ -15,6 +15,7 @@ __lazy_modules__ = [
     "wcwidth.grapheme",
     "wcwidth.hyperlink",
     "wcwidth.linebreak",
+    "wcwidth.report_split",
     "wcwidth.sgr_state",
     "wcwidth.table_ambiguous",
     "wcwidth.table_linebreak",
