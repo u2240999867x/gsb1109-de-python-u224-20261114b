@@ -4,19 +4,55 @@ Implements the HPACK header compression algorithm as detailed by RFC 7541.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
-from .exceptions import HPACKDecodingError, InvalidTableSizeError, OversizedHeaderListError
+from .exceptions import (
+    HPACKDecodingError,
+    InvalidTableSizeError,
+    InvalidTableStateError,
+    OversizedHeaderListError,
+)
 from .huffman import HuffmanEncoder
 from .huffman_constants import REQUEST_CODES, REQUEST_CODES_LENGTH
 from .huffman_table import decode_huffman
 from .struct import HeaderTuple, HeaderWeaklyTyped, NeverIndexedHeaderTuple
-from .table import HeaderTable, table_entry_size
+from .table import HeaderTable, HeaderTableState, table_entry_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterable  # pragma: no cover
 
 log = logging.getLogger(__name__)
+
+#: Version of the serialized :class:`Encoder` state.
+ENCODER_STATE_VERSION = 1
+
+#: Version of the serialized :class:`Decoder` state.
+DECODER_STATE_VERSION = 1
+
+
+class EncoderState(TypedDict):
+    """
+    Persisted replay state of an :class:`Encoder`.
+
+    ``table_size_changes`` holds the capacity settings that have been applied
+    locally but not yet emitted in a header block: these are the changes a
+    later header block must still reflect.
+    """
+
+    version: int
+    header_table: HeaderTableState
+    table_size_changes: list[int]
+
+
+class DecoderState(TypedDict):
+    """
+    Persisted replay state of a :class:`Decoder`.
+    """
+
+    version: int
+    header_table: HeaderTableState
+    max_header_list_size: int
+    max_allowed_table_size: int
 
 INDEX_NONE = b"\x00"
 INDEX_NEVER = b"\x10"
@@ -414,6 +450,32 @@ class Encoder:
         self.table_size_changes = []
         return block
 
+    def snapshot(self) -> EncoderState:
+        """
+        Captures a serializable replay snapshot.
+
+        The pending table size changes (capacity settings already applied but
+        not yet written into a header block) are captured alongside the
+        effective dynamic table, so a restored encoder still emits them in its
+        next :meth:`encode` call.
+        """
+        return {
+            "version": ENCODER_STATE_VERSION,
+            "header_table": self.header_table.snapshot(),
+            "table_size_changes": list(self.table_size_changes),
+        }
+
+    def restore(self, state: EncoderState) -> None:
+        """
+        Restores an encoder from a :meth:`snapshot`, including the dynamic
+        table and the table size changes still awaiting emission.
+        """
+        if state.get("version") != ENCODER_STATE_VERSION:
+            msg = f"Unsupported encoder state version: {state.get('version')!r}"
+            raise InvalidTableStateError(msg)
+        self.header_table.restore(state["header_table"])
+        self.table_size_changes = list(state["table_size_changes"])
+
 
 class Decoder:
     """
@@ -675,3 +737,37 @@ class Decoder:
         )
 
         return header, total_consumed
+
+    def snapshot(self) -> DecoderState:
+        """
+        Captures a serializable replay snapshot.
+
+        The snapshot contains the effective dynamic table (including its
+        eviction log and global eviction sequence) together with the capacity
+        limits. A decoder restored from this snapshot behaves as if it had
+        processed every preceding header block without interruption: entries
+        evicted under a smaller table size stay gone even if a later block
+        grows the table again.
+        """
+        return {
+            "version": DECODER_STATE_VERSION,
+            "header_table": self.header_table.snapshot(),
+            "max_header_list_size": self.max_header_list_size,
+            "max_allowed_table_size": self.max_allowed_table_size,
+        }
+
+    def restore(self, state: DecoderState) -> None:
+        """
+        Restores a decoder from a :meth:`snapshot`.
+
+        The dynamic table is rebuilt directly from the stored entries rather
+        than by replaying the original header blocks, so the first decode
+        after recovery starts from exactly the persisted table and never
+        revives values that were evicted before the snapshot was taken.
+        """
+        if state.get("version") != DECODER_STATE_VERSION:
+            msg = f"Unsupported decoder state version: {state.get('version')!r}"
+            raise InvalidTableStateError(msg)
+        self.header_table.restore(state["header_table"])
+        self.max_header_list_size = state["max_header_list_size"]
+        self.max_allowed_table_size = state["max_allowed_table_size"]

@@ -51,3 +51,12 @@ class InvalidTableSizeError(HPACKDecodingError):
 
     .. versionadded:: 3.0.0
     """
+
+
+class InvalidTableStateError(HPACKError):
+    """
+    A persisted HPACK replay state could not be restored because it is
+    unsupported, malformed or internally inconsistent.
+
+    .. versionadded:: 4.3.0
+    """

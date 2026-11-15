@@ -10,6 +10,8 @@ dev
 
 **API Changes (Backward Compatible)**
 
+- Added resumable HPACK replay state. ``Encoder`` and ``Decoder`` now expose ``snapshot()``/``restore()`` for serializable checkpoints that capture the effective dynamic table contents, the pending encoder table size changes and an ordered eviction log. The ``hpack.checkpoint`` module adds JSON ``dumps_checkpoint``/``loads_checkpoint`` and file-based ``save_checkpoint``/``load_checkpoint`` helpers, and a new ``InvalidTableStateError`` is raised when a checkpoint cannot be restored. Entries evicted under a smaller table capacity stay evicted after the capacity later grows again.
+
 **Bugfixes**
 
 
