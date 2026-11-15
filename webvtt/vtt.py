@@ -512,6 +512,8 @@ def parse_items(
             if item:
                 item.comments = [comment.text for comment in comments]
                 comments = []
+                if isinstance(item, Caption):
+                    item.source_line = number
                 items.append(item)
             elif WebVTTCommentBlock.is_valid(block_lines):
                 comments.append(WebVTTCommentBlock.from_lines(block_lines))

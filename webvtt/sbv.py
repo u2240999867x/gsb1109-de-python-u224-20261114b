@@ -130,6 +130,7 @@ def _parse_captions(
             kind = _skipped_block_kind(block_lines)
             issues.append(_skipped_block(number, kind, block_lines))
         else:
+            caption.source_line = number
             captions.append(caption)
 
     return captions

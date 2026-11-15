@@ -196,6 +196,93 @@ use, and move the captions to the start of the clip:
     clip.save('clip.vtt')
 
 
+Querying the words visible at a time
+------------------------------------
+
+Some captions, such as those of YouTube or of karaoke, have timestamp tags
+in their cue text, as in ``<00:00:17.500>``, that say when the text after
+them becomes visible. `WebVTT.words_at` returns the words that are visible at
+a time, with where they are written in the raw text of their caption:
+
+.. code-block:: python
+
+    vtt = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:16.500 --> 00:00:18.500
+    When the moon <00:17.500>hits your eye
+    """)
+
+    query = vtt.words_at('00:00:17.000')
+    [word.text for word in query]      # ['When', 'the', 'moon']
+    query.words[0].start               # 0, in the raw text of the caption
+    query.words[0].end                 # 4
+    query.words[0].cue_index           # 0
+    query.words[0].cue_line            # 3, in the file it was read from
+    query.text                         # 'When the moon'
+
+The text before the first timestamp tag is visible from the start of the
+cue. A timestamp tag sets the time the text after it becomes visible, and
+the text stays visible until the end of the cue. A time after the end of the
+cue, or before its start, has no visible words.
+
+The words are given with offsets in the raw text of the caption, so they can
+be highlighted where they are written:
+
+.. code-block:: python
+
+    caption = vtt[0]
+    for word in vtt.words_at('00:00:18.000'):
+        assert caption.raw_text[word.start:word.end] == word.text
+    # raw_text, and the index of the word in its lines
+    word = vtt.words_at('00:00:18.000').words[0]
+    caption.raw_text[word.start:word.end]      # 'When'
+    (word.line, word.column)                   # (0, 0)
+
+Character references count as one character, so ``&lt;`` is one ``<``, and
+cue tags take no room: ``he<b>llo`` is the word ``hello``. The word also has
+``text_start`` and ``text_end``, offsets in ``word_timeline.plain_text``,
+the text of the caption without its tags and with its character references
+decoded.
+
+A word may also have a time that cannot be trusted. When a timestamp tag
+goes back before the previous one, or is outside the caption, the text after
+it may be visible at a range of times or at any time. Those words are left
+out of the result while the time is in the uncertain range, and the
+uncertain parts are returned in ``query.unknown``, with the raw offsets of
+the text they cover:
+
+.. code-block:: python
+
+    vtt = webvtt.from_string("""\
+    WEBVTT
+
+    00:00:01.000 --> 00:00:05.000
+    one <00:03.000>two <00:02.000>three <00:04.000>four
+    """)
+
+    query = vtt.words_at('00:00:02.500')
+    [word.text for word in query]      # ['one']
+    part, = query.unknown
+    part.reason                        # 'backwards'
+    part.after, part.before            # 00:00:02.000, 00:00:03.000
+    vtt[0].raw_text[part.start:part.end]   # 'three'
+
+    [word.text for word in vtt.words_at('00:00:04.500')]
+    # ['one', 'two', 'three', 'four']
+
+A tag outside the caption has no known time at all, so ``after`` and
+``before`` are ``None`` and ``bounded`` is false: the text after it is
+neither returned nor left out at any time of the caption, and is reported
+in ``unknown``. A query never returns a word from text after an uncertain
+part at an earlier time, so a later word cannot appear before the words
+before it.
+
+To query a caption instead of a file, use `Caption.words_at`, which returns
+the words of that caption, and `Caption.word_timeline`, which has every word
+with its time and the uncertain parts of the caption.
+
+
 Creating captions
 -----------------
 

@@ -6,11 +6,12 @@ import datetime
 import decimal
 import fractions
 import functools
+import html
 import math
 import re
 import typing
 from collections.abc import Callable, Generator, Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .errors import MalformedCaptionError, MalformedRegionError
 from .utils import _split_lines
@@ -516,6 +517,613 @@ def _strip_cue_text_tags(line: str) -> str:
         )
 
 
+# a character reference, as in ``&amp;``, ``&#38;`` or ``&#x26;``
+_ENTITY_REFERENCE = re.compile(
+    r'&(?:#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});'
+    )
+
+_UnknownReason = typing.Literal['backwards', 'outside']
+
+
+@dataclass(frozen=True)
+class UnknownBoundary:
+    """
+    A part of a cue whose words have no known time they become visible.
+
+    A timestamp tag that goes back in time or is outside the cue makes the
+    text after it uncertain: the tag still says when the text may become
+    visible, but that time cannot be trusted, so the text is neither shown
+    nor hidden when a query falls in the uncertain range.
+
+    ``after`` is inclusive and ``before`` is exclusive, as the times of a
+    cue are: a part that may become visible at ``after`` is visible at
+    that time, while one that may become visible at ``before`` is not.
+
+    :param start: offset of the first character of the part in the raw text
+        of the cue
+    :param end: offset after the last character of the part in the raw text
+        of the cue
+    :param line: index of the line of the part in the cue, from 0
+    :param column: offset of the part in its line, from 0
+    :param reason: ``backwards`` for a timestamp tag before the previous
+        one, or ``outside`` for one before the start or after the end of
+        the cue
+    :param after: the earliest time the part may become visible, or None
+        when the boundaries are unknown, as for a tag outside the cue
+    :param before: the latest time the part may become visible, or None
+        when the boundaries are unknown
+    :param cue_index: index of the caption in the captions of the `WebVTT`
+        instance, from 0, or None for a caption
+    :param cue_identifier: identifier of the caption, if any
+    :param cue_line: line where the cue starts in the file it was read from,
+        from 1, or None when it was not read from a file
+    """
+
+    start: int
+    end: int
+    line: int
+    column: int
+    reason: _UnknownReason
+    after: Timestamp | None = None
+    before: Timestamp | None = None
+    cue_index: int | None = None
+    cue_identifier: str | None = None
+    cue_line: int | None = None
+
+    @property
+    def bounded(self) -> bool:
+        """Return whether the possible times of the part are known."""
+        return self.after is not None and self.before is not None
+
+    def __str__(self) -> str:
+        """Return the reason and the possible times of the part."""
+        if self.after is None or self.before is None:
+            return f'{self.reason}: unknown time'
+        return f'{self.reason}: {self.after} to {self.before}'
+
+
+@dataclass(frozen=True)
+class WordTiming:
+    """
+    A word of a cue, with where it is and when it becomes visible.
+
+    :param text: the word, with character references decoded and cue tags
+        left out
+    :param start: offset of the first character of the word in the raw text
+        of the cue
+    :param end: offset after the last character of the word in the raw text
+        of the cue, which includes tags and references inside it
+    :param text_start: offset of the first character of the word in the
+        text of the cue with the tags left out and the references decoded
+    :param text_end: offset after the last character of the word in that
+        text
+    :param line: index of the line of the word in the cue, from 0
+    :param column: offset of the word in its line of the raw text, from 0
+    :param visible_from: the time the word becomes visible, or None when
+        the time is unknown, as for a word in an `UnknownBoundary`
+    :param unknown: the uncertain part the word is in, or None
+    :param cue_index: index of the caption in the captions of the `WebVTT`
+        instance, from 0, or None for a caption
+    :param cue_identifier: identifier of the caption, if any
+    :param cue_line: line where the cue starts in the file it was read from,
+        from 1, or None when it was not read from a file
+    """
+
+    text: str
+    start: int
+    end: int
+    text_start: int
+    text_end: int
+    line: int
+    column: int
+    visible_from: Timestamp | None = None
+    unknown: UnknownBoundary | None = None
+    cue_index: int | None = None
+    cue_identifier: str | None = None
+    cue_line: int | None = None
+
+    def is_visible_at(self, at: _Position) -> bool | None:
+        """
+        Return whether the word is visible at a time.
+
+        :param at: the time, a timestamp string, a `Timestamp`, a number of
+            seconds or a ``timedelta``
+        :returns: True or False when the word is clearly visible or not,
+            and None when its time is uncertain at that time
+
+        :raises MalformedCaptionError: if the time is not valid
+        """
+        time = _to_timestamp(at)
+        if self.visible_from is not None:
+            return self.visible_from <= time
+        unknown = self.unknown
+        if unknown is None:
+            return False
+        if unknown.after is None or unknown.before is None:
+            return None
+        if time < unknown.after:
+            return False
+        if time >= unknown.before:
+            return True
+        return None
+
+
+@dataclass(frozen=True)
+class WordQuery:
+    """
+    The words of a cue or of a file that are visible at a time.
+
+    :param at: the time of the query
+    :param words: the words that are visible at the time
+    :param unknown: the uncertain parts of the query time, which are left
+        out of ``words`` as they may or may not be visible
+    """
+
+    at: Timestamp
+    words: tuple[WordTiming, ...]
+    unknown: tuple[UnknownBoundary, ...]
+
+    def __iter__(self) -> Iterator[WordTiming]:
+        """Iterate the visible words."""
+        return iter(self.words)
+
+    def __getitem__(
+            self,
+            index: int | slice
+            ) -> WordTiming | tuple[WordTiming, ...]:
+        """Return a visible word by index, or words by slice."""
+        return self.words[index]
+
+    def __len__(self) -> int:
+        """Return the number of visible words."""
+        return len(self.words)
+
+    def __bool__(self) -> bool:
+        """Return whether any word is visible."""
+        return bool(self.words)
+
+    @property
+    def text(self) -> str:
+        """Return the visible words separated by spaces."""
+        return ' '.join(word.text for word in self.words)
+
+
+@dataclass(frozen=True)
+class WordTimeline:
+    """
+    The words of a cue, with their times and the uncertain parts.
+
+    :param words: the words in the raw order of the cue
+    :param unknown: the parts of the cue with no known time
+    :param start: the start time of the cue
+    :param end: the end time of the cue
+    :param plain_text: the text of the cue without its tags and with its
+        character references decoded, which the text offsets of the words
+        refer to
+    """
+
+    words: tuple[WordTiming, ...]
+    unknown: tuple[UnknownBoundary, ...]
+    start: Timestamp
+    end: Timestamp
+    plain_text: str = ''
+
+    def at(self, at: _Position) -> WordQuery:
+        """
+        Return the words visible at a time.
+
+        Text before the first timestamp tag is visible from the start of
+        the cue. A word in an uncertain part is left out when the time is
+        in the uncertain range, and is only returned once the latest
+        possible time has passed.
+
+        :param at: the time, a timestamp string, a `Timestamp`, a number of
+            seconds or a ``timedelta``
+        :returns: a `WordQuery` with the visible words and the uncertain
+            parts at that time
+
+        :raises MalformedCaptionError: if the time is not valid
+        """
+        time = _to_timestamp(at)
+        return _query_timeline(self, time)
+
+    def __iter__(self) -> Iterator[WordTiming]:
+        """Iterate the words in the raw order of the cue."""
+        return iter(self.words)
+
+    def __len__(self) -> int:
+        """Return the number of words."""
+        return len(self.words)
+
+    @property
+    def text(self) -> str:
+        """Return the words separated by spaces."""
+        return ' '.join(word.text for word in self.words)
+
+
+@dataclass(frozen=True)
+class _Segment:
+    """A part of a cue between two timestamp tags, or the cue edges."""
+
+    start: int
+    end: int
+    visible_from: Timestamp | None
+    unknown: UnknownBoundary | None
+
+
+def _query_timeline(
+        timeline: WordTimeline,
+        at: Timestamp
+        ) -> WordQuery:
+    """
+    Return the words of a timeline visible at a time.
+
+    Text in an uncertain part is left out while the time is in its
+    uncertain range, and is returned once even the latest possible time
+    it may become visible has passed.
+
+    :param timeline: the timeline of the words
+    :param at: the time of the query
+    :returns: a `WordQuery` instance
+    """
+    if not (timeline.start <= at < timeline.end):
+        return WordQuery(at, (), ())
+
+    unknown = tuple(
+        part for part in timeline.unknown if _is_uncertain(part, at)
+        )
+    words = []
+    for word in timeline.words:
+        if word.visible_from is not None:
+            if word.visible_from <= at:
+                words.append(word)
+            continue
+        if word.unknown is None or word.unknown.before is None:
+            continue
+        if at >= word.unknown.before:
+            words.append(word)
+
+    return WordQuery(at, tuple(words), unknown)
+
+
+def _is_uncertain(part: UnknownBoundary, at: Timestamp) -> bool:
+    """
+    Return whether a part may become visible at a time.
+
+    :param part: the uncertain part
+    :param at: the time of the query
+    :returns: true when the part has no known boundaries, or when at is
+        from its earliest to its latest possible time
+    """
+    if part.after is None or part.before is None:
+        return True
+    return part.after <= at < part.before
+
+
+def _iter_raw_tags(
+        raw_text: str
+        ) -> Generator[tuple[str, int, int], None, None]:
+    """
+    Iterate the tags of a cue text and where they are.
+
+    Works as `_iter_cue_text_tokens` but with the offsets of the tags in
+    the raw text, so a word can be traced back to where it is written. A
+    ``<`` without a ``>`` after it on its line is part of the text, as a
+    tag cannot span lines.
+
+    :param raw_text: the raw text of a cue
+    :returns: tuples of the content of a tag, its offset and the offset
+        after its closing ``>``
+    """
+    line_start = 0
+    while line_start <= len(raw_text):
+        line_end = raw_text.find('\n', line_start)
+        if line_end < 0:
+            line_end = len(raw_text)
+        pos = line_start
+        while True:
+            start = raw_text.find('<', pos, line_end)
+            if start < 0:
+                break
+            end = raw_text.find('>', start + 1, line_end)
+            if end < 0:
+                break
+            yield raw_text[start + 1:end], start, end + 1
+            pos = end + 1
+        line_start = line_end + 1
+
+
+def _markers(
+        raw_text: str
+        ) -> list[tuple[int, int, Timestamp]]:
+    """
+    Return the timestamp tags of a cue text in their raw order.
+
+    A tag whose content is a timestamp is a timestamp tag; other cue tags,
+    such as ``<c.foo>`` or ``<v Bob>``, are left out. A timestamp that is
+    not valid, as in ``<00:0x.000>``, is read as a cue tag, as the parser
+    reads any other tag.
+
+    :param raw_text: the raw text of a cue
+    :returns: tuples of the offset of the tag, the offset after it and its
+        time
+    """
+    markers = []
+    for content, start, end in _iter_raw_tags(raw_text):
+        try:
+            time = Timestamp.from_string(content)
+        except MalformedCaptionError:
+            continue
+        markers.append((start, end, time))
+    return markers
+
+
+def _trimmed_span(raw_text: str, start: int, end: int) -> tuple[int, int]:
+    """
+    Return the offsets of a part of a cue text without its spaces.
+
+    :param raw_text: the raw text of the cue
+    :param start: the offset of the first character of the part
+    :param end: the offset after its last character
+    :returns: the offsets of the first non-space character and after the
+        last one, which are both ``start`` when there is no text
+    """
+    while start < end and raw_text[start].isspace():
+        start += 1
+    while end > start and raw_text[end - 1].isspace():
+        end -= 1
+    return start, end
+
+
+def _line_starts(text: str) -> list[int]:
+    """
+    Return the offsets of the first character of each line.
+
+    :param text: the text, with lines separated by LF
+    :returns: the offsets, the first one zero
+    """
+    starts = [0]
+    starts.extend(match.end() for match in re.finditer('\n', text))
+    return starts
+
+
+def _line_and_column(starts: Sequence[int], offset: int) -> tuple[int, int]:
+    """
+    Return the line and the column of an offset.
+
+    :param starts: the offsets of the first character of each line
+    :param offset: an offset in the text
+    :returns: the index of the line, from 0, and the offset in it, from 0
+    """
+    line = bisect.bisect_right(starts, offset) - 1
+    return line, offset - starts[line]
+
+
+def _boundary_position(
+        raw_text: str,
+        starts: Sequence[int],
+        offset: int
+        ) -> tuple[int, int]:
+    """
+    Return the line and column of the first character of a part.
+
+    A part that starts at the end of a line starts at the next one.
+
+    :param raw_text: the raw text of the cue
+    :param starts: the offsets of the first character of each line
+    :param offset: the offset of the first character of the part
+    :returns: the index of the line, from 0, and the offset in it, from 0
+    """
+    if offset < len(raw_text) and raw_text[offset] == '\n':
+        offset += 1
+    if offset == len(raw_text) and raw_text.endswith('\n'):
+        return len(starts) - 1, 0
+    return _line_and_column(starts, offset)
+
+
+def _text_characters(
+        raw_text: str,
+        start: int,
+        end: int
+        ) -> Generator[tuple[str, int, int], None, None]:
+    """
+    Iterate the characters of a raw part of a cue text.
+
+    Character references are decoded, so ``&lt;`` is one ``<``, and each
+    decoded character carries the raw part it comes from. A reference that
+    is not known is left as it is written, as `html.unescape` does.
+
+    :param raw_text: the raw text of the cue
+    :param start: the offset of the first character of the part
+    :param end: the offset after its last character
+    :returns: tuples of a character, its raw offset and the offset after it
+    """
+    pos = start
+    for match in _ENTITY_REFERENCE.finditer(raw_text, start, end):
+        for offset in range(pos, match.start()):
+            yield raw_text[offset], offset, offset + 1
+        decoded = html.unescape(match.group())
+        for character in decoded:
+            yield character, match.start(), match.end()
+        pos = match.end()
+    for offset in range(pos, end):
+        yield raw_text[offset], offset, offset + 1
+
+
+def _segment_characters(
+        raw_text: str,
+        segment: _Segment
+        ) -> Generator[tuple[str, int, int], None, None]:
+    """
+    Iterate the text characters of a segment, without its cue tags.
+
+    Cue tags take no room in the text, so a word broken by a style tag, as
+    in ``he<b>llo``, is still one word, and the character references are
+    decoded. A tag cannot span lines, so a ``<`` without a ``>`` after it
+    on its line, and the text after it, are text.
+
+    :param raw_text: the raw text of the cue
+    :param segment: the part of the cue
+    :returns: tuples of a character, its raw offset and the offset after it
+    """
+    pos = segment.start
+    while pos < segment.end:
+        tag_start = raw_text.find('<', pos, segment.end)
+        if tag_start < 0:
+            yield from _text_characters(raw_text, pos, segment.end)
+            break
+        line_end = raw_text.find('\n', tag_start, segment.end)
+        if line_end < 0:
+            line_end = segment.end
+        tag_end = raw_text.find('>', tag_start + 1, line_end)
+        if tag_end < 0:
+            # the ``<`` is text, and so is the rest of the segment unless
+            # a later ``<`` on the same line closes a tag
+            yield from _text_characters(raw_text, pos, tag_start + 1)
+            pos = tag_start + 1
+            continue
+        yield from _text_characters(raw_text, pos, tag_start)
+        pos = tag_end + 1
+
+
+def _timed_word_timeline(
+        lines: Sequence[str],
+        start: Timestamp,
+        end: Timestamp
+        ) -> WordTimeline:
+    """
+    Return the words of a cue with their times.
+
+    A timestamp tag gives the time the text after it becomes visible. The
+    text before the first tag is visible from the start of the cue. A tag
+    before the previous one, or outside the cue, makes the part after it
+    uncertain: its possible times are kept when the tag goes back, and are
+    unknown when the tag is outside the cue.
+
+    :param lines: the lines of the cue text
+    :param start: the start time of the cue
+    :param end: the end time of the cue
+    :returns: a `WordTimeline` instance
+    """
+    raw_text = '\n'.join(lines)
+    starts = _line_starts(raw_text)
+    markers = _markers(raw_text)
+
+    segments: list[_Segment] = []
+    # the latest time a trusted tag can have, which the text before a tag
+    # is known to be visible from
+    floor = start
+    first = markers[0][0] if markers else len(raw_text)
+    segments.append(_Segment(0, first, start, None))
+
+    for index, (_, marker_end, marker_time) in enumerate(markers):
+        segment_end = (markers[index + 1][0]
+                       if index + 1 < len(markers)
+                       else len(raw_text)
+                       )
+        if marker_time < start or marker_time > end:
+            # the time is not in the cue, so the text after it may be
+            # visible at any time of the cue, or never
+            line, column = _boundary_position(raw_text, starts, marker_end)
+            part = UnknownBoundary(
+                marker_end, segment_end, line, column, 'outside'
+                )
+            segments.append(_Segment(
+                marker_end, segment_end, None, part
+                ))
+        elif marker_time < floor:
+            # the tag goes back, so the text after it may be visible from
+            # its time to the time of the tag before, and not earlier;
+            # the earlier tag still holds its time
+            line, column = _boundary_position(raw_text, starts, marker_end)
+            part = UnknownBoundary(
+                marker_end, segment_end, line, column, 'backwards',
+                marker_time, floor
+                )
+            segments.append(_Segment(
+                marker_end, segment_end, None, part
+                ))
+        else:
+            floor = marker_time
+            segments.append(_Segment(
+                marker_end, segment_end, marker_time, None
+                ))
+
+    words: list[WordTiming] = []
+    unknown: list[UnknownBoundary] = []
+    plain_offset = 0
+    for segment in segments:
+        if segment.unknown is not None and not any(
+                segment.unknown is seen for seen in unknown):
+            start_offset, end_offset = _trimmed_span(
+                raw_text, segment.unknown.start, segment.unknown.end
+                )
+            if start_offset < end_offset:
+                line, column = _boundary_position(
+                    raw_text, starts, start_offset
+                    )
+                part = replace(
+                    segment.unknown,
+                    start=start_offset,
+                    end=end_offset,
+                    line=line,
+                    column=column
+                    )
+                unknown.append(part)
+                segment = replace(segment, unknown=part)
+            else:
+                # the part is only spaces, so it has no words to be
+                # uncertain about
+                segment = replace(segment, unknown=None)
+
+        current: list[str] = []
+        raw_start = raw_end = segment.start
+        text_start = plain_offset
+
+        def flush() -> None:
+            """Add the word collected so far, if any."""
+            nonlocal current, plain_offset
+            if not current:
+                return
+            line, column = _line_and_column(starts, raw_start)
+            words.append(WordTiming(
+                ''.join(current),
+                raw_start,
+                raw_end,
+                text_start,
+                text_start + len(current),
+                line,
+                column,
+                segment.visible_from,
+                segment.unknown
+                ))
+            plain_offset += len(current)
+            current = []
+
+        for character, raw_from, raw_to in _segment_characters(
+                raw_text, segment):
+            if character.isspace():
+                flush()
+                plain_offset += len(character)
+                continue
+            if not current:
+                raw_start = raw_from
+                text_start = plain_offset
+            raw_end = raw_to
+            current.append(character)
+
+        flush()
+
+    plain_text = ''.join(
+        character
+        for segment in segments
+        for character, _, _ in _segment_characters(raw_text, segment)
+        )
+    return WordTimeline(
+        tuple(words), tuple(unknown), start, end, plain_text
+        )
+
+
 # the characters WebVTT treats as spaces when splitting settings
 _SETTINGS_SEPARATOR = re.compile('[ \t\n\f\r]+')
 _PERCENTAGE = re.compile(r'[0-9]+(?:\.[0-9]+)?%')
@@ -883,6 +1491,9 @@ class Caption:
         self._settings = _to_cue_settings(settings)
         self.lines = _caption_lines([] if text is None else text)
         self.comments: list[str] = []
+        # the line where the cue starts in the file it was read from, which
+        # is None for a caption that was not read from a file
+        self.source_line: int | None = None
 
     def __repr__(self) -> str:
         """Return the string representation of the caption."""
@@ -1099,6 +1710,60 @@ class Caption:
                     if match:
                         voices.append(match.group(1))
         return voices
+
+    @property
+    def word_timeline(self) -> WordTimeline:
+        """
+        Return the words of the caption with their times.
+
+        Text before the first timestamp tag is visible from the start of
+        the caption, and a timestamp tag gives the time the text after it
+        becomes visible. Character references count as one character, as
+        in ``&lt;`` for one ``<``, and cue tags take no room.
+
+        A timestamp tag before the previous one, or outside the caption,
+        makes the text after it uncertain, which is returned in the
+        ``unknown`` parts of the timeline, with the offsets in the raw text
+        of the caption.
+        """
+        timeline = _timed_word_timeline(
+            self.lines, self.start_time, self.end_time
+            )
+        return replace(
+            timeline,
+            words=tuple(
+                replace(
+                    word,
+                    cue_identifier=self.identifier,
+                    cue_line=self.source_line
+                    )
+                for word in timeline.words
+                ),
+            unknown=tuple(
+                replace(
+                    part,
+                    cue_identifier=self.identifier,
+                    cue_line=self.source_line
+                    )
+                for part in timeline.unknown
+                )
+            )
+
+    def words_at(self, at: _Position) -> WordQuery:
+        """
+        Return the words of the caption visible at a time.
+
+        The words are returned with their offsets in the raw text of the
+        caption, so they can be highlighted where they are written. A word
+        whose time is uncertain at the time, which is in an
+        `UnknownBoundary` of the caption, is left out, and the uncertain
+        parts are returned in ``unknown``.
+
+        :param at: the time, a timestamp string, a `Timestamp`, a number of
+            seconds or a ``timedelta``, rounded to the nearest millisecond
+        :returns: a `WordQuery` with the visible words
+        """
+        return self.word_timeline.at(at)
 
 
 def _caption_lines(

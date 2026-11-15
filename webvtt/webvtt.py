@@ -8,6 +8,7 @@ import io
 import typing
 import warnings
 from collections.abc import Generator, Iterable, Iterator, Sequence
+from dataclasses import replace
 
 from . import vtt, utils
 from . import srt
@@ -18,14 +19,18 @@ from .models import (
     Region,
     Style,
     Timestamp,
+    UnknownBoundary,
     ValidationIssue,
+    WordQuery,
+    WordTiming,
     _FrameRate,
     _Position,
     _offset_in_milliseconds,
     _optional_timestamp,
     _retime_captions,
     _sync_mapping,
-    _framerate_mapping
+    _framerate_mapping,
+    _to_timestamp
     )
 from .errors import MissingFilenameError
 
@@ -962,6 +967,37 @@ class WebVTT:
         # stable, so the issues of a caption keep the order above
         issues.sort(key=lambda issue: issue.index)
         return issues
+
+    def words_at(self, at: _Position) -> WordQuery:
+        """
+        Return the words of the captions visible at a time.
+
+        The words of every caption that is on screen at the time are
+        returned in the order of the captions, with their offsets in the
+        raw text of their caption, their index in ``captions`` and their
+        identifier. The ``unknown`` parts of the result are the parts of
+        the captions whose time cannot be trusted at the query time.
+
+        :param at: the time, a timestamp string, a `Timestamp`, a number of
+            seconds or a ``timedelta``, rounded to the nearest millisecond
+        :returns: a `WordQuery` with the visible words
+
+        :raises MalformedCaptionError: if the time is not valid
+        """
+        time = _to_timestamp(at)
+        words: list[WordTiming] = []
+        unknown: list[UnknownBoundary] = []
+        for index, caption in enumerate(self.captions):
+            if not (caption.start_time <= time < caption.end_time):
+                continue
+            found = caption.word_timeline.at(time)
+            words.extend(
+                replace(word, cue_index=index) for word in found.words
+                )
+            unknown.extend(
+                replace(part, cue_index=index) for part in found.unknown
+                )
+        return WordQuery(time, tuple(words), tuple(unknown))
 
     @property
     def total_length(self) -> float:

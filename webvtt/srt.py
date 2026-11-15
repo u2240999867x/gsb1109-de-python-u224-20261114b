@@ -343,6 +343,7 @@ def _read_cues(
                     number, 'Invalid cue block', block_lines
                     ))
             else:
+                caption.source_line = number
                 cues.append((number, block_lines, caption))
         elif caption is not None:
             caption.lines.extend(block_lines)

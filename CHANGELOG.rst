@@ -1,6 +1,21 @@
 History
 =======
 
+Unreleased
+----------
+
+Changes:
+
+* Added ``WebVTT.words_at`` and ``Caption.words_at``, which return the words
+  visible at a time, with their offsets in the raw text of their caption,
+  their line and column, the index and identifier of their caption, and the
+  parts of the caption whose time cannot be trusted, as a timestamp tag that
+  goes back or is outside the caption. ``Caption.word_timeline`` has every
+  word with its time and those parts. Text before the first timestamp tag is
+  visible from the start of the cue, character references count as one
+  character and cue tags take no room, and text after an uncertain part is
+  not returned before the uncertain range
+
 0.8.0 (08-11-2026)
 ------------------
 

@@ -1635,6 +1635,111 @@ class TestWebVTT(unittest.TestCase):
         vtt.sort()
         self.assertEqual(vtt.captions, [])
 
+    def test_words_at(self):
+        vtt = webvtt.from_string(textwrap.dedent('''\
+            WEBVTT
+
+            00:00:01.000 --> 00:00:05.000
+            one <00:02.000>two
+
+            00:00:03.000 --> 00:00:06.000
+            three <00:04.000>four
+            '''))
+        query = vtt.words_at('00:00:02.500')
+        self.assertEqual([word.text for word in query], ['one', 'two'])
+        self.assertEqual([word.cue_index for word in query], [0, 0])
+        self.assertEqual(query.unknown, ())
+
+        query = vtt.words_at('00:00:03.500')
+        self.assertEqual([word.text for word in query],
+                         ['one', 'two', 'three'])
+        self.assertEqual([word.cue_index for word in query], [0, 0, 1])
+
+        query = vtt.words_at('00:00:04.000')
+        self.assertEqual([word.text for word in query],
+                         ['one', 'two', 'three', 'four'])
+
+        self.assertEqual(len(vtt.words_at('00:00:00.999')), 0)
+        self.assertEqual(len(vtt.words_at('00:00:06.000')), 0)
+
+    def test_words_at_returns_raw_offsets(self):
+        vtt = webvtt.from_string(textwrap.dedent('''\
+            WEBVTT
+
+            00:00:01.000 --> 00:00:05.000
+            one <00:02.000>two
+            '''))
+        caption = vtt[0]
+        word = vtt.words_at('00:00:02.000').words[1]
+        self.assertEqual(caption.raw_text[word.start:word.end], 'two')
+        self.assertEqual(
+            caption.lines[word.line][word.column:word.column + len('two')],
+            'two')
+
+    def test_words_at_returns_identifier(self):
+        vtt = webvtt.from_string(textwrap.dedent('''\
+            WEBVTT
+
+            chapter 1
+            00:00:01.000 --> 00:00:05.000
+            one
+            '''))
+        word = vtt.words_at('00:00:02.000').words[0]
+        self.assertEqual(word.cue_identifier, 'chapter 1')
+
+    def test_words_at_returns_source_line(self):
+        vtt = webvtt.from_string(textwrap.dedent('''\
+            WEBVTT
+
+            00:00:01.000 --> 00:00:05.000
+            one
+
+            00:00:06.000 --> 00:00:09.000
+            two
+            '''))
+        self.assertEqual(vtt[0].source_line, 3)
+        self.assertEqual(vtt[1].source_line, 6)
+        self.assertEqual(vtt.words_at('00:00:02.000').words[0].cue_line, 3)
+        self.assertEqual(vtt.words_at('00:00:07.000').words[0].cue_line, 6)
+
+    def test_words_at_unknown_boundary(self):
+        vtt = webvtt.from_string(textwrap.dedent('''\
+            WEBVTT
+
+            00:00:01.000 --> 00:00:05.000
+            one <00:03.000>two <00:02.000>three
+            '''))
+        query = vtt.words_at('00:00:02.500')
+        self.assertEqual([word.text for word in query], ['one'])
+        part, = query.unknown
+        self.assertEqual(part.reason, 'backwards')
+        self.assertEqual(part.cue_index, 0)
+        self.assertEqual(vtt[0].raw_text[part.start:part.end], 'three')
+
+    def test_words_at_unknown_boundary_does_not_leak(self):
+        caption = Caption('00:00:01.000', '00:00:05.000',
+                          'one <00:03.000>two <00:02.000>three '
+                          '<00:04.000>four')
+        vtt = webvtt.WebVTT(captions=[caption])
+        query = vtt.words_at('00:00:02.500')
+        self.assertEqual([word.text for word in query], ['one'])
+        self.assertNotIn('four', [word.text for word in query])
+        query = vtt.words_at('00:00:04.500')
+        self.assertEqual([word.text for word in query],
+                         ['one', 'two', 'three', 'four'])
+
+    def test_words_at_invalid_time(self):
+        vtt = webvtt.WebVTT(captions=[Caption('00:00:01.000',
+                                              '00:00:05.000', 'one')])
+        with self.assertRaises(webvtt.errors.MalformedCaptionError):
+            vtt.words_at('not a time')
+
+    def test_words_at_empty(self):
+        query = webvtt.WebVTT().words_at('00:00:01.000')
+        self.assertEqual(query.words, ())
+        self.assertEqual(query.unknown, ())
+        self.assertFalse(query)
+
     def test_validate_valid(self):
         vtt = webvtt.from_string(textwrap.dedent('''\
             WEBVTT

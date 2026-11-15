@@ -5,6 +5,7 @@ import time
 import unittest
 import unittest.mock
 
+import webvtt
 from webvtt.models import (
     Timestamp, Caption, CueSettings, ParseIssue, Region, Style
     )
@@ -1040,6 +1041,360 @@ class TestCaption(unittest.TestCase):
                 caption.text,
                 re.sub('<.*?>', '', raw_text)
             )
+
+
+class TestWordTimeline(unittest.TestCase):
+
+    def test_text_before_first_tag_visible_from_start(self):
+        caption = Caption('00:00:10.000', '00:00:20.000',
+                          'When the moon <00:00:17.500>hits your eye')
+        query = caption.words_at('00:00:15.000')
+        self.assertEqual([word.text for word in query],
+                         ['When', 'the', 'moon'])
+        query = caption.words_at('00:00:18.000')
+        self.assertEqual([word.text for word in query],
+                         ['When', 'the', 'moon', 'hits', 'your', 'eye'])
+
+    def test_cue_before_and_after_are_empty(self):
+        caption = Caption('00:00:10.000', '00:00:20.000', 'word')
+        self.assertEqual(len(caption.words_at('00:00:09.999')), 0)
+        self.assertEqual(len(caption.words_at('00:00:20.000')), 0)
+        self.assertEqual(len(caption.words_at('00:00:10.000')), 1)
+
+    def test_offsets_point_into_raw_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'one <00:01.000>two <c.x>three</c>')
+        words = list(caption.word_timeline)
+        self.assertEqual(
+            [(word.start, word.end) for word in words],
+            [(0, 3), (15, 18), (24, 29)]
+            )
+        for word in words:
+            self.assertEqual(
+                caption.raw_text[word.start:word.end].replace(
+                    '<c.x>', '').replace('</c>', ''),
+                word.text
+                )
+
+    def test_offset_inside_word_with_tags(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'he<b>llo</b>')
+        word, = caption.word_timeline.words
+        self.assertEqual(word.text, 'hello')
+        self.assertEqual(word.start, 0)
+        self.assertEqual(word.end, 8)
+        self.assertEqual(caption.raw_text[:8], 'he<b>llo')
+
+    def test_entities_take_one_slot(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          '2 &lt; 3 &#38; 4 &amp; 5')
+        self.assertEqual(
+            [word.text for word in caption.word_timeline],
+            ['2', '<', '3', '&', '4', '&', '5']
+            )
+
+    def test_entities_offsets(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a &lt; b')
+        less_than = caption.word_timeline.words[1]
+        self.assertEqual(less_than.text, '<')
+        self.assertEqual(caption.raw_text[less_than.start:less_than.end],
+                         '&lt;')
+
+    def test_unknown_entity_is_not_decoded(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a &nope; b')
+        self.assertEqual(
+            [word.text for word in caption.word_timeline],
+            ['a', '&nope;', 'b']
+            )
+
+    def test_invalid_timestamp_is_a_cue_tag(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:0x.000>b')
+        self.assertEqual(
+            [word.text for word in caption.word_timeline],
+            ['a', 'b']
+            )
+        # the invalid tag is a cue tag, so the text after it keeps the
+        # time of the text before it
+        self.assertEqual(str(caption.word_timeline.words[1].visible_from),
+                         '00:00:00.000')
+
+    def test_backwards_gives_unknown_range(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c <00:04.000>d')
+        timeline = caption.word_timeline
+        part, = timeline.unknown
+        self.assertEqual(part.reason, 'backwards')
+        self.assertEqual(str(part.after), '00:00:01.000')
+        self.assertEqual(str(part.before), '00:00:03.000')
+        query = caption.words_at('00:00:02.000')
+        self.assertEqual([word.text for word in query], ['a'])
+        self.assertEqual(query.unknown, (part,))
+        query = caption.words_at('00:00:01.500')
+        self.assertEqual([word.text for word in query], ['a'])
+
+    def test_backwards_after_range_shows_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c')
+        query = caption.words_at('00:00:03.500')
+        self.assertEqual([word.text for word in query], ['a', 'b', 'c'])
+        self.assertEqual(query.unknown, ())
+
+    def test_backwards_does_not_leak_later_words(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c <00:04.000>d')
+        query = caption.words_at('00:00:02.000')
+        self.assertNotIn('d', [word.text for word in query])
+        query = caption.words_at('00:00:02.000')
+        self.assertNotIn('c', [word.text for word in query])
+
+    def test_tag_outside_cue_has_unknown_boundaries(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:09.000>b')
+        part, = caption.word_timeline.unknown
+        self.assertEqual(part.reason, 'outside')
+        self.assertIsNone(part.after)
+        self.assertIsNone(part.before)
+        self.assertFalse(part.bounded)
+        query = caption.words_at('00:00:02.000')
+        self.assertEqual([word.text for word in query], ['a'])
+        self.assertEqual(query.unknown, (part,))
+
+    def test_tag_before_start_is_outside(self):
+        caption = Caption('00:00:10.000', '00:00:20.000',
+                          'a <00:00:01.000>b')
+        part, = caption.word_timeline.unknown
+        self.assertEqual(part.reason, 'outside')
+
+    def test_tag_at_end_is_known(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:00:05.000>b')
+        self.assertEqual(caption.word_timeline.unknown, ())
+        self.assertEqual(str(caption.words_at('00:00:04.999').words[0].text),
+                         'a')
+
+    def test_unknown_word_visibility(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c')
+        word = caption.word_timeline.words[2]
+        self.assertIsNone(word.is_visible_at('00:00:02.000'))
+        self.assertFalse(word.is_visible_at('00:00:00.500'))
+        self.assertTrue(word.is_visible_at('00:00:03.000'))
+
+    def test_word_is_visible_at(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b')
+        first, second = caption.word_timeline.words
+        self.assertTrue(first.is_visible_at(0))
+        self.assertFalse(second.is_visible_at(2.999))
+        self.assertTrue(second.is_visible_at(3))
+
+    def test_query_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'one two <00:01.000>three')
+        self.assertEqual(caption.words_at('00:00:00.500').text, 'one two')
+        self.assertTrue(caption.words_at('00:00:00.500'))
+        self.assertFalse(caption.words_at('00:00:09.000'))
+
+    def test_line_and_column(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['first line', 'second <00:01.000>third'])
+        timeline = caption.word_timeline
+        third = timeline.words[-1]
+        self.assertEqual((third.line, third.column), (1, 18))
+        self.assertEqual(timeline.plain_text[third.text_start:third.text_end],
+                         'third')
+
+    def test_query_on_multiple_lines(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one two', '<00:01.000>three four'])
+        self.assertEqual(
+            caption.words_at(0).text, 'one two'
+            )
+        self.assertEqual(
+            caption.words_at(2).text, 'one two three four'
+            )
+
+    def test_query_time_rounding(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:01.000>b')
+        # a query time is read as the time of a cue, so it is rounded to
+        # the nearest millisecond as written
+        self.assertEqual(caption.words_at(0.9994).text, 'a')
+        self.assertEqual(caption.words_at(0.9995).text, 'a b')
+
+    def test_invalid_query_time(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a')
+        with self.assertRaises(MalformedCaptionError):
+            caption.words_at('nope')
+
+    def test_caption_identifier_is_returned(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a',
+                          identifier='chapter 1')
+        self.assertEqual(caption.words_at(1).words[0].cue_identifier,
+                         'chapter 1')
+
+    def test_cue_line(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a')
+        self.assertIsNone(caption.words_at(1).words[0].cue_line)
+        caption.source_line = 12
+        self.assertEqual(caption.words_at(1).words[0].cue_line, 12)
+
+    def test_unknown_boundary_str(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c')
+        backwards, = caption.word_timeline.unknown
+        self.assertEqual(str(backwards),
+                         'backwards: 00:00:01.000 to 00:00:03.000')
+        self.assertTrue(backwards.bounded)
+        outside = Caption(
+            '00:00:00.000', '00:00:05.000', 'a <00:09.000>b'
+            ).word_timeline.unknown[0]
+        self.assertEqual(str(outside), 'outside: unknown time')
+        self.assertFalse(outside.bounded)
+
+    def test_word_visibility_without_time_or_part(self):
+        # a word with neither a time nor a part is not visible, which only
+        # a hand-made word can be
+        word = webvtt.WordTiming('x', 0, 1, 0, 1, 0, 0)
+        self.assertFalse(word.is_visible_at(1))
+        word = webvtt.WordTiming(
+            'x', 0, 1, 0, 1, 0, 0,
+            unknown=webvtt.UnknownBoundary(0, 1, 0, 0, 'outside')
+            )
+        self.assertIsNone(word.is_visible_at(1))
+
+    def test_query_index_and_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'one two <00:01.000>three')
+        query = caption.words_at('00:00:02.000')
+        self.assertEqual(len(query), 3)
+        self.assertEqual(query[0].text, 'one')
+        self.assertEqual([word.text for word in query[0:2]],
+                         ['one', 'two'])
+        self.assertEqual(query.text, 'one two three')
+
+    def test_timeline_len_and_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'one two <00:01.000>three')
+        timeline = caption.word_timeline
+        self.assertEqual(len(timeline), 3)
+        self.assertEqual(timeline.text, 'one two three')
+
+    def test_tag_after_invalid_tag_on_same_line(self):
+        # the text is read as when the tags are removed from the caption,
+        # where the second ``<`` starts a tag that holds the first one
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <unclosed <b>c')
+        self.assertEqual(caption.text, 'a c')
+        self.assertEqual([word.text for word in caption.word_timeline],
+                         ['a', 'c'])
+
+    def test_marker_at_start_of_next_line(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one <00:01.000>', '<00:02.000>two'])
+        words = caption.word_timeline.words
+        self.assertEqual((words[-1].line, words[-1].column), (1, 11))
+
+    def test_caption_ending_with_line_break(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one <00:01.000>', ''])
+        self.assertEqual(caption.words_at(1).text, 'one')
+
+    def test_unclosed_tags_in_word_timeline(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'one < two <three')
+        self.assertEqual(caption.word_timeline.plain_text, 'one < two <three')
+        self.assertEqual(
+            [word.text for word in caption.word_timeline],
+            ['one', '<', 'two', '<three']
+            )
+
+    def test_unclosed_tag_at_end_of_line(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one <', 'two'])
+        self.assertEqual(caption.word_timeline.plain_text, 'one <\ntwo')
+        self.assertEqual(
+            [word.text for word in caption.word_timeline],
+            ['one', '<', 'two']
+            )
+
+    def test_unknown_part_after_marker_at_end_of_line(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one <00:09.000>', 'two'])
+        part, = caption.word_timeline.unknown
+        self.assertEqual((part.line, part.column), (1, 0))
+        self.assertEqual(caption.raw_text[part.start:part.end], 'two')
+
+    def test_unknown_part_at_end_of_text(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one', 'two <00:09.000>', ''])
+        # the part after the tag is empty, so it has nothing to report
+        self.assertEqual(caption.word_timeline.unknown, ())
+        self.assertEqual(caption.words_at(1).text, 'one two')
+
+    def test_word_timeline_is_immutable(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a')
+        with self.assertRaises(Exception):
+            caption.word_timeline.words[0].text = 'b'
+
+
+    def test_unknown_part_without_words_is_left_out(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000> <00:01.000>   <00:04.000>b')
+        self.assertEqual(caption.word_timeline.unknown, ())
+        self.assertEqual(caption.words_at('00:00:01.500').text, 'a')
+
+    def test_marker_at_end_of_line(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          ['one <00:01.000>', 'two'])
+        timeline = caption.word_timeline
+        two = timeline.words[-1]
+        self.assertEqual((two.line, two.column), (1, 0))
+        self.assertEqual(caption.words_at('00:00:01.000').text, 'one two')
+
+    def test_entity_inside_unknown_part(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a <00:03.000>b <00:01.000>c &lt; d')
+        query = caption.words_at('00:00:02.000')
+        self.assertEqual([word.text for word in query], ['a'])
+        part, = query.unknown
+        self.assertEqual(caption.raw_text[part.start:part.end],
+                         'c &lt; d')
+        self.assertEqual(
+            [word.text for word in caption.words_at('00:00:03.000')],
+            ['a', 'b', 'c', '<', 'd']
+            )
+
+    def test_entity_decoded_to_more_characters(self):
+        caption = Caption('00:00:00.000', '00:00:05.000',
+                          'a &NotEqualTilde; b')
+        timeline = caption.word_timeline
+        self.assertEqual([word.text for word in timeline],
+                         ['a', '≂̸', 'b'])
+        word = timeline.words[1]
+        self.assertEqual(timeline.plain_text[word.text_start:word.text_end],
+                         word.text)
+        self.assertEqual(caption.raw_text[word.start:word.end],
+                         '&NotEqualTilde;')
+
+    def test_entity_decoded_to_space(self):
+        caption = Caption('00:00:00.000', '00:00:05.000', 'a&#32;b')
+        self.assertEqual([word.text for word in caption.word_timeline],
+                         ['a', 'b'])
+
+    def test_caption_query_matches_file_query(self):
+        for text in ('a <00:02.000>b',
+                     'a <00:03.000>b <00:01.000>c <00:04.000>d',
+                     'a <00:09.000>b'):
+            caption = Caption('00:00:01.000', '00:00:05.000', text)
+            vtt = webvtt.WebVTT(captions=[caption])
+            for at in ('00:00:01.000', '00:00:02.000',
+                       '00:00:03.000', '00:00:04.000'):
+                with self.subTest(text=text, at=at):
+                    self.assertEqual(
+                        [word.text for word in caption.words_at(at)],
+                        [word.text for word in vtt.words_at(at)]
+                        )
 
 
 class TestLinearTime(unittest.TestCase):
