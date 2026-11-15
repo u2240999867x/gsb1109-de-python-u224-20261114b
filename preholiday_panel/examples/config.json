@@ -1,0 +1,8 @@
+{
+  "calendar": "CN",
+  "range_start": "2023-08-01",
+  "range_end": "2023-10-31",
+  "business_days_before": 1,
+  "exclude_before": 0,
+  "exclude_after": 0
+}

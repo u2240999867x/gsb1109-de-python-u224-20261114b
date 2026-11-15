@@ -1,0 +1,5 @@
+﻿store_id,group_id,holiday,holiday_start,holiday_end,observation_date,observation_weekday,status,control_date,control_weekday,distance_days,interchangeable,alt_controls,observation_amount,control_amount
+STORE_A,STORE_A#G1,Mid-Autumn Festival,2023-09-29,2023-09-29,2023-09-28,周四,matched,2023-09-21,周四,7,yes,2023-09-14;2023-10-12,505.0,612.0
+STORE_A,STORE_A#G1,National Day,2023-09-30,2023-10-06,2023-09-28,周四,matched,2023-09-14,周四,14,yes,2023-09-21;2023-10-12,505.0,661.0
+STORE_B,STORE_B#G1,Mid-Autumn Festival,2023-09-29,2023-09-29,2023-09-28,周四,matched,2023-09-21,周四,7,yes,2023-09-14;2023-10-12,945.0,54.0
+STORE_B,STORE_B#G1,National Day,2023-09-30,2023-10-06,2023-09-28,周四,matched,2023-09-14,周四,14,yes,2023-09-21;2023-10-12,945.0,465.0

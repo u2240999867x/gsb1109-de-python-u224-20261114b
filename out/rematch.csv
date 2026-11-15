@@ -1,0 +1,5 @@
+﻿store_id,holiday,holiday_start,change_type,before_group,after_group,before_observation,after_observation,before_control,after_control,before_status,after_status
+STORE_A,Mid-Autumn Festival,2023-09-29,observation_shifted;control_changed,STORE_A#G1,STORE_A#G1,2023-09-28,2023-09-27,2023-09-21,2023-09-20,matched,matched
+STORE_A,National Day,2023-09-30,observation_shifted;control_changed,STORE_A#G1,STORE_A#G1,2023-09-28,2023-09-27,2023-09-14,2023-09-13,matched,matched
+STORE_B,Mid-Autumn Festival,2023-09-29,observation_shifted;control_changed,STORE_B#G1,STORE_B#G1,2023-09-28,2023-09-27,2023-09-21,2023-09-20,matched,matched
+STORE_B,National Day,2023-09-30,observation_shifted;control_changed,STORE_B#G1,STORE_B#G1,2023-09-28,2023-09-27,2023-09-14,2023-09-13,matched,matched
