@@ -1,0 +1,84 @@
+{
+  "type": "Feature",
+  "stac_version": "1.0.0",
+  "id": "S2A_L2A_T45WWS_demo",
+  "properties": {
+    "datetime": "2020-06-15T06:06:41Z",
+    "proj:epsg": 32645
+  },
+  "geometry": null,
+  "links": [],
+  "assets": {
+    "visual": {
+      "href": "s3://bucket/s2/T45WWS_TCI.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["data", "reflectance"],
+      "file:size": 135093974,
+      "file:checksum": "90e4tci000000000000000000000000000000001",
+      "eo:bands": [
+        {"name": "red", "common_name": "red"},
+        {"name": "green", "common_name": "green"},
+        {"name": "blue", "common_name": "blue"}
+      ],
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    },
+    "B04": {
+      "href": "s3://bucket/s2/T45WWS_B04.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["data", "reflectance"],
+      "file:size": 109843887,
+      "file:checksum": "90e4b04000000000000000000000000000000001",
+      "eo:bands": [{"name": "red", "common_name": "red"}],
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    },
+    "B03": {
+      "href": "s3://bucket/s2/T45WWS_B03.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["data", "reflectance"],
+      "file:size": 105510111,
+      "file:checksum": "90e4b03000000000000000000000000000000001",
+      "eo:bands": [{"name": "green", "common_name": "green"}],
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    },
+    "B02": {
+      "href": "s3://bucket/s2/T45WWS_B02.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["data", "reflectance"],
+      "file:size": 104626138,
+      "file:checksum": "90e4b02000000000000000000000000000000001",
+      "eo:bands": [{"name": "blue", "common_name": "blue"}],
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    },
+    "scl_mask": {
+      "href": "s3://bucket/s2/T45WWS_SCL.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["cloud", "data-mask"],
+      "file:size": 7542881,
+      "file:checksum": "90e4scl000000000000000000000000000000001",
+      "proj:shape": [5490, 5490],
+      "proj:transform": [20, 0, 399960, 0, -20, 4200000, 0, 0, 1]
+    },
+    "qa_mask": {
+      "href": "s3://bucket/s2/T45WWS_QA10.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["cloud", "data-mask"],
+      "file:size": 33554432,
+      "file:checksum": "90e4qa1000000000000000000000000000000001",
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    },
+    "qa_mask_alias": {
+      "href": "s3://mirror/other-path/T45WWS_QA10_copy.tif",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "roles": ["cloud", "data-mask"],
+      "file:size": 33554432,
+      "file:checksum": "90e4qa1000000000000000000000000000000001",
+      "proj:shape": [10980, 10980],
+      "proj:transform": [10, 0, 399960, 0, -10, 4200000, 0, 0, 1]
+    }
+  }
+}
