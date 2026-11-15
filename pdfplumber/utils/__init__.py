@@ -1,6 +1,9 @@
 from .clustering import cluster_list, cluster_objects, make_cluster_dict  # noqa: F401
 from .generic import to_list  # noqa: F401
 from .geometry import (  # noqa: F401
+    add_provenance,
+    annotate_obj,
+    apply_provenance,
     bbox_to_rect,
     calculate_area,
     clip_obj,
@@ -11,6 +14,7 @@ from .geometry import (  # noqa: F401
     intersects_bbox,
     line_to_edge,
     merge_bboxes,
+    merge_provenance,
     move_object,
     obj_to_bbox,
     obj_to_edges,

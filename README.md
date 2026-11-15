@@ -113,7 +113,7 @@ The `pdfplumber.Page` class is at the core of `pdfplumber`. Most things you'll d
 
 | Method | Description |
 |--------|-------------|
-|`.crop(bounding_box, relative=False, strict=True)`| Returns a version of the page cropped to the bounding box, which should be expressed as 4-tuple with the values `(x0, top, x1, bottom)`. Cropped pages retain objects that fall at least partly within the bounding box. If an object falls only partly within the box, its dimensions are sliced to fit the bounding box. If `relative=True`, the bounding box is calculated as an offset from the top-left of the page's bounding box, rather than an absolute positioning. (See [Issue #245](https://github.com/jsvine/pdfplumber/issues/245) for a visual example and explanation.) When `strict=True` (the default), the crop's bounding box must fall entirely within the page's bounding box.|
+|`.crop(bounding_box, relative=False, strict=True, half_open=True, space=None, relative_to=None)`| Returns a version of the page cropped to the bounding box, which should be expressed as 4-tuple with the values `(x0, top, x1, bottom)`. Cropped pages retain objects that fall at least partly within the bounding box. If an object falls only partly within the box, its dimensions are sliced to fit the bounding box. If `relative=True`, the bounding box is calculated as an offset from the top-left of the page's bounding box, rather than an absolute positioning. (See [Issue #245](https://github.com/jsvine/pdfplumber/issues/245) for a visual example and explanation.) When `strict=True` (the default), the crop's bounding box must fall entirely within the page's bounding box. When `half_open=True` (the default), the box is treated as the half-open region `[x0, x1) x [top, bottom)`, so objects touching the right or bottom edge are excluded. The `space` argument accepts `"page"` (default), `"original"`/`"pdf"`/`"raw"` (the PDF's native bottom-left coordinates, retaining any non-zero `MediaBox` origin), `"mediabox"`/`"media"` (bottom-left, `MediaBox`-relative), or `"cropbox"`. The `relative_to` argument (`"mediabox"` or `"cropbox"`) offsets the box from that reference box's top-left corner; see "[Coordinate provenance](#coordinate-provenance)" below.|
 |`.within_bbox(bounding_box, relative=False, strict=True)`| Similar to `.crop`, but only retains objects that fall *entirely within* the bounding box.|
 |`.outside_bbox(bounding_box, relative=False, strict=True)`| Similar to `.crop` and `.within_bbox`, but only retains objects that fall *entirely outside* the bounding box.|
 |`.filter(test_function)`| Returns a version of the page with only the `.objects` for which `test_function(obj)` returns `True`.|
@@ -282,6 +282,29 @@ Additionally, both `pdfplumber.PDF` and `pdfplumber.Page` provide access to seve
 ### Obtaining higher-level layout objects via `pdfminer.six`
 
 If you pass the `pdfminer.six`-handling `laparams` parameter to `pdfplumber.open(...)`, then each page's `.objects` dictionary will also contain `pdfminer.six`'s higher-level layout objects, such as `"textboxhorizontal"`.
+
+
+### Coordinate provenance
+
+Cropped pages select objects using the *source* (unclipped) extent of each object, but report the clipped *visible* extent in the usual `x0`/`x1`/`top`/`bottom` fields. This means chained crops select exactly the same glyphs as the equivalent single crop, regardless of order. Objects on cropped (and other derived) pages carry these additional fields:
+
+| Field | Description |
+|-------|-------------|
+|`source_bbox`| The object's unclipped bounding box in page space, i.e., in the coordinate system of the root page.|
+|`visible_bbox`| The object's clipped bounding box in the current page's space (equal to `source_bbox` when nothing was clipped).|
+|`source_pdf_bbox`| The unclipped bounding box in the PDF's native bottom-left coordinates, including any non-zero `MediaBox` origin and accounting for `/Rotate`.|
+|`visible_pdf_bbox`| The clipped bounding box in the same PDF coordinate system.|
+|`original_bbox`, `original_visible_bbox`| Aliases for `source_bbox` and `visible_bbox`.|
+|`original_pdf_bbox`, `original_visible_pdf_bbox`| Explicit aliases for `source_pdf_bbox` and `visible_pdf_bbox`.|
+|`clipped` / `fully_visible`| Whether the object was clipped by the crop (booleans).|
+|`crop_bbox` / `crop_bboxes`| The crop box that produced the current page, and the sequence of crop boxes applied, respectively.|
+|`mediabox`, `mediabox_pdf`, `cropbox`, `cropbox_pdf`, `rotation`| The page's frame of reference, in page and PDF coordinates.|
+
+When a glyph is only half-visible, `source_bbox` and `visible_bbox` differ; the same values are available per-axis as `source_x0`, `source_top`, etc., `visible_x0`, `visible_top`, etc., in page coordinates as `original_x0`/`original_top`, and in PDF coordinates as `pdf_x0`/`pdf_y0` and `visible_pdf_x0`/`visible_pdf_y0`. Words and search results derived from cropped glyphs carry merged versions of these fields.
+
+Pages also expose conversion methods: `page.to_original_bbox(bbox)`, `page.from_original_bbox(bbox)`, and the aliases `to_pdf_bbox`/`from_pdf_bbox`, `to_raw_bbox`/`from_raw_bbox`, `to_source_bbox`/`from_source_bbox`; the `_point` variants; `page.to_mediabox_bbox(...)`, `page.to_cropbox_bbox(...)`; and `page.convert_bbox(bbox, from_space, to_space)`. The underlying `page.coords` object provides the same conversions, along with `mediabox`, `page_mediabox`, `cropbox`, and `cropbox_pdf`.
+
+Note that `.crop(...)`, `.within_bbox(...)`, and `.outside_bbox(...)` treat their boxes as half-open (`[x0, x1) x [top, bottom)`) by default. Pass `half_open=False` to retain the older closed-edge behavior. To specify an input box in original PDF coordinates, pass `space="original"` (and similarly `"mediabox"` or `"cropbox"`); to offset from a fixed frame, pass `relative_to="mediabox"` or `relative_to="cropbox"`.
 
 
 ## Visual debugging

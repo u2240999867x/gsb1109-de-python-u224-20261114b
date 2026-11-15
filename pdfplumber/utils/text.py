@@ -20,7 +20,7 @@ from typing import (
 from .._typing import T_bbox, T_dir, T_num, T_obj, T_obj_iter, T_obj_list
 from .clustering import cluster_objects
 from .generic import to_list
-from .geometry import objects_to_bbox
+from .geometry import apply_provenance, merge_provenance, objects_to_bbox
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +166,10 @@ class TextMap:
 
         if return_chars:
             result["chars"] = chars
+
+        provenance = merge_provenance(chars)
+        if provenance:
+            result = apply_provenance(result, provenance)
 
         return result
 
@@ -507,6 +511,10 @@ class WordExtractor:
             "width": x1 - x0,
             "direction": char_dir,
         }
+
+        provenance = merge_provenance(ordered_chars)
+        if provenance:
+            word = apply_provenance(word, provenance)
 
         for key in self.extra_attrs:
             word[key] = ordered_chars[0][key]

@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Add coordinate provenance to objects on derived pages: `source_bbox`/`visible_bbox` and their PDF-space equivalents, `clipped`, `crop_bbox`/`crop_bboxes`, and the page's `mediabox`/`cropbox` frames. Half-clipped glyphs now retain both their original and visible boxes. Words and search results inherit merged provenance.
+- Add `Page.to_original_bbox(...)`/`from_original_bbox(...)` (and `pdf`/`raw`/`source` aliases), MediaBox/CropBox-relative converters, and `Page.coords`/`pdfplumber.coords.CoordinateTransform`, which invert page, original-PDF, MediaBox-relative, and CropBox-relative coordinates for non-zero origins and 0/90/180/270-degree rotations.
+- Add `space=` and `relative_to=` arguments to `Page.crop(...)`, `Page.within_bbox(...)`, and `Page.outside_bbox(...)`, allowing bounding boxes to be expressed in original-PDF, MediaBox-relative, or CropBox-relative coordinates.
+
+### Changed
+- `Page.crop(...)`, `.within_bbox(...)`, and `.outside_bbox(...)` now treat bounding boxes as half-open (`[x0, x1) x [top, bottom)`) by default, matching the PDF specification's half-open rectangle convention. Pass `half_open=False` for the previous closed-edge behavior.
+- Cropped pages now select objects by their source extent, making chained crops independent of the order in which equivalent crop boxes are applied.
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed

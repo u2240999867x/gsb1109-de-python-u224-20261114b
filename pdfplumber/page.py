@@ -33,6 +33,7 @@ from pdfminer.psparser import PSLiteral
 from . import utils
 from ._typing import T_bbox, T_num, T_obj, T_obj_list
 from .container import Container
+from .coords import CoordinateTransform
 from .structure import PDFStructTree, StructTreeMissing
 from .table import T_table_settings, Table, TableFinder, TableSettings
 from .utils import decode_text, resolve_all, resolve_and_decode
@@ -211,10 +212,12 @@ class Page(Container):
         _rotation = get_attr("Rotate", 0)
         self.rotation = _rotation % 360
 
+        mb_unrotated = _normalize_box(get_attr("MediaBox"))
         mb_raw = _normalize_box(get_attr("MediaBox"), self.rotation)
         mb_height = mb_raw[3] - mb_raw[1]
 
         self.mediabox = _invert_box(mb_raw, mb_height)
+        self.mediabox_raw = mb_unrotated
 
         for box_name in ["CropBox", "TrimBox", "BleedBox", "ArtBox"]:
             if box_name in page_obj.attrs:
@@ -228,6 +231,8 @@ class Page(Container):
 
         # Page.bbox defaults to self.mediabox, but can be altered by Page.crop(...)
         self.bbox = self.mediabox
+        self.coords = CoordinateTransform(self.mediabox_raw, self.rotation)
+        self.coords.set_cropbox(self.cropbox)
 
         # See https://rednafi.com/python/lru_cache_on_methods/
         self.get_textmap = lru_cache()(self._get_textmap)
@@ -335,6 +340,24 @@ class Page(Container):
         else:
             return parsed
 
+    def annots_with_provenance(self) -> T_obj_list:
+        """
+        Return this page's annotations with the same coordinate-provenance
+        fields used for other objects (``source_bbox``, ``visible_bbox``, etc.).
+        """
+        return [
+            utils.annotate_obj(
+                annot,
+                transform=self.coords,
+                crop_bbox=(
+                    self.bbox
+                    if isinstance(self, CroppedPage) and self.crop_kind != "outside"
+                    else None
+                ),
+            )
+            for annot in self.annots
+        ]
+
     @property
     def hyperlinks(self) -> T_obj_list:
         return [a for a in self.annots if a["uri"] is not None]
@@ -349,6 +372,106 @@ class Page(Container):
     def point2coord(self, pt: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
         # See note below re. #1181 and mediabox-adjustment reversions
         return (self.mediabox[0] + pt[0], self.mediabox[1] + self.height - pt[1])
+
+    # Coordinate-conversion helpers -------------------------------------
+    #
+    # Page space is the coordinate system of the object dictionaries
+    # (x grows right, top grows down). "Original" space is the PDF's native
+    # bottom-left system, retaining any non-zero MediaBox origin.
+
+    @property
+    def coordinate_transform(self) -> CoordinateTransform:
+        return self.coords
+
+    def to_original_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        return self.coords.to_original_point(point)
+
+    def from_original_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        return self.coords.from_original_point(point)
+
+    def to_original_bbox(self, bbox: T_bbox) -> T_bbox:
+        return self.coords.to_original_bbox(bbox)
+
+    def from_original_bbox(self, bbox: T_bbox) -> T_bbox:
+        return self.coords.from_original_bbox(bbox)
+
+    to_pdf_point = to_original_point
+    from_pdf_point = from_original_point
+    to_pdf_bbox = to_original_bbox
+    from_pdf_bbox = from_original_bbox
+    to_source_point = to_original_point
+    from_source_point = from_original_point
+    to_source_bbox = to_original_bbox
+    from_source_bbox = from_original_bbox
+    to_raw_point = to_original_point
+    from_raw_point = from_original_point
+    to_raw_bbox = to_original_bbox
+    from_raw_bbox = from_original_bbox
+
+    def convert_bbox(
+        self,
+        bbox: T_bbox,
+        from_space: str = "page",
+        to_space: str = "original",
+    ) -> T_bbox:
+        return self.coords.transform_bbox(
+            bbox, from_space=from_space, to_space=to_space
+        )
+
+    def convert_point(
+        self,
+        point: Tuple[T_num, T_num],
+        from_space: str = "page",
+        to_space: str = "original",
+    ) -> Tuple[T_num, T_num]:
+        return self.coords.transform_point(
+            point, from_space=from_space, to_space=to_space
+        )
+
+    def to_mediabox_bbox(self, bbox: T_bbox) -> T_bbox:
+        """Map a page-space bbox to MediaBox-relative, bottom-left space."""
+        return self.coords.to_mediabox_bbox(self.to_original_bbox(bbox))
+
+    def from_mediabox_bbox(self, bbox: T_bbox) -> T_bbox:
+        """Map a MediaBox-relative, bottom-left bbox to page space."""
+        return self.from_original_bbox(self.coords.from_mediabox_bbox(bbox))
+
+    def to_mediabox_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        return self.coords.to_mediabox_point(self.to_original_point(point))
+
+    def from_mediabox_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        return self.from_original_point(self.coords.from_mediabox_point(point))
+
+    def to_cropbox_bbox(self, bbox: T_bbox) -> T_bbox:
+        """Map a page-space bbox to CropBox-relative, bottom-left space."""
+        cb = self.coords.cropbox_pdf
+        pdf_bbox = self.to_original_bbox(bbox)
+        return (
+            pdf_bbox[0] - cb[0],
+            pdf_bbox[1] - cb[1],
+            pdf_bbox[2] - cb[0],
+            pdf_bbox[3] - cb[1],
+        )
+
+    def from_cropbox_bbox(self, bbox: T_bbox) -> T_bbox:
+        """Map a CropBox-relative, bottom-left bbox to page space."""
+        cb = self.coords.cropbox_pdf
+        pdf_bbox = (
+            bbox[0] + cb[0],
+            bbox[1] + cb[1],
+            bbox[2] + cb[0],
+            bbox[3] + cb[1],
+        )
+        return self.from_original_bbox(pdf_bbox)
+
+    def to_cropbox_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        cb = self.coords.cropbox_pdf
+        pdf_point = self.to_original_point(point)
+        return (pdf_point[0] - cb[0], pdf_point[1] - cb[1])
+
+    def from_cropbox_point(self, point: Tuple[T_num, T_num]) -> Tuple[T_num, T_num]:
+        cb = self.coords.cropbox_pdf
+        return self.from_original_point((point[0] + cb[0], point[1] + cb[1]))
 
     def process_object(self, obj: LTItem) -> T_obj:
         kind = re.sub(lt_pat, "", obj.__class__.__name__).lower()
@@ -404,7 +527,9 @@ class Page(Container):
 
             # Ignoring typing because type signature for obj.original_path
             # appears to be incorrect
-            attr["path"] = [(cmd, *map(self.point2coord, pts)) for cmd, *pts in obj.original_path]  # type: ignore  # noqa: E501
+            attr["path"] = [
+                (cmd, *map(self.point2coord, pts)) for cmd, *pts in obj.original_path
+            ]  # type: ignore  # noqa: E501
 
             attr["dash"] = obj.dashing_style
 
@@ -543,28 +668,68 @@ class Page(Container):
         )
 
     def crop(
-        self, bbox: T_bbox, relative: bool = False, strict: bool = True
+        self,
+        bbox: T_bbox,
+        relative: bool = False,
+        strict: bool = True,
+        half_open: bool = True,
+        space: Optional[str] = None,
+        relative_to: Optional[str] = None,
     ) -> "CroppedPage":
-        return CroppedPage(self, bbox, relative=relative, strict=strict)
+        return CroppedPage(
+            self,
+            bbox,
+            relative=relative,
+            strict=strict,
+            half_open=half_open,
+            space=space,
+            relative_to=relative_to,
+        )
 
     def within_bbox(
-        self, bbox: T_bbox, relative: bool = False, strict: bool = True
+        self,
+        bbox: T_bbox,
+        relative: bool = False,
+        strict: bool = True,
+        half_open: bool = True,
+        space: Optional[str] = None,
+        relative_to: Optional[str] = None,
     ) -> "CroppedPage":
         """
         Same as .crop, except only includes objects fully within the bbox
         """
         return CroppedPage(
-            self, bbox, relative=relative, strict=strict, crop_fn=utils.within_bbox
+            self,
+            bbox,
+            relative=relative,
+            strict=strict,
+            half_open=half_open,
+            space=space,
+            relative_to=relative_to,
+            crop_fn=utils.within_bbox,
         )
 
     def outside_bbox(
-        self, bbox: T_bbox, relative: bool = False, strict: bool = True
+        self,
+        bbox: T_bbox,
+        relative: bool = False,
+        strict: bool = True,
+        half_open: bool = True,
+        space: Optional[str] = None,
+        relative_to: Optional[str] = None,
     ) -> "CroppedPage":
         """
-        Same as .crop, except only includes objects fully within the bbox
+        Same as .crop, except only includes objects fully outside the bbox
         """
         return CroppedPage(
-            self, bbox, relative=relative, strict=strict, crop_fn=utils.outside_bbox
+            self,
+            bbox,
+            relative=relative,
+            strict=strict,
+            half_open=half_open,
+            space=space,
+            relative_to=relative_to,
+            crop_fn=utils.outside_bbox,
         )
 
     def filter(self, test_function: Callable[[T_obj], bool]) -> "FilteredPage":
@@ -625,9 +790,12 @@ class Page(Container):
             "rotation": self.rotation,
             "cropbox": self.cropbox,
             "mediabox": self.mediabox,
+            "mediabox_raw": self.mediabox_raw,
+            "cropbox_pdf": self.coords.cropbox_pdf,
             "bbox": self.bbox,
             "width": self.width,
             "height": self.height,
+            "coordinate_transform": self.coords.describe(),
         }
         for t in _object_types:
             d[t + "s"] = getattr(self, t + "s")
@@ -649,7 +817,9 @@ class DerivedPage(Page):
         self.initial_doctop = parent_page.initial_doctop
         self.rotation = parent_page.rotation
         self.mediabox = parent_page.mediabox
+        self.mediabox_raw = parent_page.mediabox_raw
         self.cropbox = parent_page.cropbox
+        self.coords = parent_page.coords
         self.flush_cache(Container.cached_properties)
         self.get_textmap = lru_cache()(self._get_textmap)
 
@@ -682,21 +852,46 @@ class CroppedPage(DerivedPage):
         crop_fn: Callable[[T_obj_list, T_bbox], T_obj_list] = utils.crop_to_bbox,
         relative: bool = False,
         strict: bool = True,
+        half_open: bool = True,
+        space: Optional[str] = None,
+        relative_to: Optional[str] = None,
     ):
-        if relative:
+        page_bbox = parent_page.coords.prepare_bbox(
+            crop_bbox, space=space, relative_to=relative_to
+        )
+
+        if relative and space is None and relative_to is None:
             o_x0, o_top, _, _ = parent_page.bbox
-            x0, top, x1, bottom = crop_bbox
-            crop_bbox = (x0 + o_x0, top + o_top, x1 + o_x0, bottom + o_top)
+            x0, top, x1, bottom = page_bbox
+            page_bbox = (x0 + o_x0, top + o_top, x1 + o_x0, bottom + o_top)
 
         if strict:
-            test_proposed_bbox(crop_bbox, parent_page.bbox)
+            test_proposed_bbox(page_bbox, parent_page.bbox)
+
+        crop_bbox = page_bbox
 
         def _crop_fn(objs: T_obj_list) -> T_obj_list:
-            return crop_fn(objs, crop_bbox)
+            def fn(objs: T_obj_list, bbox: T_bbox) -> T_obj_list:
+                return crop_fn(
+                    objs,
+                    bbox,
+                    half_open=half_open,
+                    provenance=True,
+                    transform=self.coords,
+                    crop_bbox=crop_bbox,
+                )
+
+            return fn(objs, crop_bbox)
 
         super().__init__(parent_page)
 
         self._crop_fn = _crop_fn
+        if crop_fn is utils.outside_bbox:
+            self.crop_kind = "outside"
+        elif crop_fn is utils.within_bbox:
+            self.crop_kind = "within"
+        else:
+            self.crop_kind = "crop"
 
         # Note: testing for original function passed, not _crop_fn
         if crop_fn is utils.outside_bbox:
