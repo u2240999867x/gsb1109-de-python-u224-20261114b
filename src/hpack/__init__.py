@@ -5,6 +5,14 @@ from __future__ import annotations
 
 from .exceptions import HPACKDecodingError, HPACKError, InvalidTableIndex, InvalidTableIndexError, InvalidTableSizeError, OversizedHeaderListError
 from .hpack import Decoder, Encoder
+from .recovery import (
+    RecoveredHeader,
+    RecoveredNeverIndexedHeader,
+    RecoveryEvent,
+    RecoveryEvidence,
+    RecoveryResult,
+    decode_with_recovery,
+)
 from .struct import HeaderTuple, NeverIndexedHeaderTuple
 
 __all__ = [
@@ -18,6 +26,12 @@ __all__ = [
     "InvalidTableSizeError",
     "NeverIndexedHeaderTuple",
     "OversizedHeaderListError",
+    "RecoveredHeader",
+    "RecoveredNeverIndexedHeader",
+    "RecoveryEvent",
+    "RecoveryEvidence",
+    "RecoveryResult",
+    "decode_with_recovery",
 ]
 
 __version__ = "4.3.0+dev"

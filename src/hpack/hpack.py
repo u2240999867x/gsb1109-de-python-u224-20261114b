@@ -15,6 +15,7 @@ from .table import HeaderTable, table_entry_size
 
 if TYPE_CHECKING:
     from collections.abc import Iterable  # pragma: no cover
+    from .recovery import RecoveryResult  # pragma: no cover
 
 log = logging.getLogger(__name__)
 
@@ -675,3 +676,20 @@ class Decoder:
         )
 
         return header, total_consumed
+
+    def recover(self, data: bytes) -> RecoveryResult:
+        """
+        Best-effort decodes a possibly damaged header block.
+
+        Unlike :meth:`decode`, this never raises for an unresolvable dynamic
+        table reference. Fields that remain provable from the visible bytes
+        after the gap are salvaged and returned together with byte-level
+        evidence, split by whether they rely on the static table, carry full
+        literal values, or depend on a dynamic table entry.
+
+        :param data: A bytestring representing the HPACK-encoded header block.
+        :returns: A :class:`~hpack.recovery.RecoveryResult`.
+        """
+        from .recovery import decode_with_recovery
+
+        return decode_with_recovery(data, self)

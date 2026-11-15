@@ -10,6 +10,13 @@ dev
 
 **API Changes (Backward Compatible)**
 
+- Added forensic, best-effort decoding of damaged header blocks through
+  ``Decoder.recover`` and ``decode_with_recovery``. Fields that remain
+  provable after an unresolvable dynamic table reference are salvaged with
+  byte-level evidence, split into static, literal and dynamic-reference
+  groups; an explicit dynamic table clear is reported as a complete new
+  start rather than as a restoration of the old table.
+
 **Bugfixes**
 
 
