@@ -33,6 +33,7 @@ from pdfminer.psparser import PSLiteral
 from . import utils
 from ._typing import T_bbox, T_num, T_obj, T_obj_list
 from .container import Container
+from .reading import ReadingOrder, T_precedence, get_reading_order
 from .structure import PDFStructTree, StructTreeMissing
 from .table import T_table_settings, Table, TableFinder, TableSettings
 from .utils import decode_text, resolve_all, resolve_and_decode
@@ -540,6 +541,22 @@ class Page(Container):
     ) -> T_obj_list:
         return self.get_textmap(**tuplify_list_kwargs(kwargs)).extract_text_lines(
             strip=strip, return_chars=return_chars
+        )
+
+    def get_reading_order(
+        self,
+        frames: Optional[List[T_bbox]] = None,
+        precedence: T_precedence = (),
+        **kwargs: Any,
+    ) -> ReadingOrder:
+        """
+        Segment the page into framed reading boundaries (full-width bands
+        and side-by-side columns) and order them from geometric evidence,
+        recording any geometrically ambiguous positions. See
+        `pdfplumber.reading.get_reading_order` for details.
+        """
+        return get_reading_order(
+            self, frames=frames, precedence=precedence, **kwargs
         )
 
     def crop(

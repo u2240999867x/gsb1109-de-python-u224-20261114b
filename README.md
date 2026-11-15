@@ -352,6 +352,34 @@ Note: The methods above are built on Pillow's [`ImageDraw` methods](http://pillo
 |`.extract_text_lines(layout=False, strip=True, return_chars=True, **kwargs)`|*Experimental feature* that returns a list of dictionaries representing the lines of text on the page. The `strip` parameter works analogously to Python's `str.strip()` method, and returns `text` attributes without their surrounding whitespace. (Only relevant when `layout = True`.) Setting `return_chars` to `False` will exclude the individual character objects from the returned text-line dicts. The remaining `**kwargs` are those you would pass to `.extract_text(layout=True, ...)`.|
 |`.search(pattern, regex=True, case=True, main_group=0, return_groups=True, return_chars=True, layout=False, **kwargs)`|*Experimental feature* that allows you to search a page's text, returning a list of all instances that match the query. For each instance, the response dictionary object contains the matching text, any regex group matches, the bounding box coordinates, and the char objects themselves. `pattern` can be a compiled regular expression, an uncompiled regular expression, or a non-regex string. If `regex` is `False`, the pattern is treated as a non-regex string. If `case` is `False`, the search is performed in a case-insensitive manner. Setting `main_group` restricts the results to a specific regex group within the `pattern` (default of `0` means the entire match). Setting `return_groups` and/or `return_chars` to `False` will exclude the lists of the matched regex groups and/or characters from being added (as `"groups"` and `"chars"` to the return dicts). The `layout` parameter operates as it does for `.extract_text(...)`. The remaining `**kwargs` are those you would pass to `.extract_text(layout=True, ...)`. __Note__: Zero-width and all-whitespace matches are discarded, because they (generally) have no explicit position on the page. |
 |`.dedupe_chars(tolerance=1, extra_attrs=("fontname", "size"))`| Returns a version of the page with duplicate chars — those sharing the same text, positioning (within `tolerance` x/y), and `extra_attrs` as other characters — removed. (See [Issue #71](https://github.com/jsvine/pdfplumber/issues/71) to understand the motivation.)|
+|`.get_reading_order(frames=None, precedence=(), frame_min_width_ratio=0.1, frame_min_height_ratio=0.02, x_tolerance=3, y_tolerance=3, **kwargs)`| *Experimental feature* that segments a framed page — e.g., a report whose upper half has two columns, whose lower half has one full-width column, and whose centered subheadings span both columns — into reading boundaries and orders them top-to-bottom across full-width bands and left-to-right within bands, rather than by a page-global x/y sort. Returns a `ReadingOrder` holding ordered `ReadingSegment` objects (each preserving its original frame bounding box and text) and any `ReadingAmbiguity` positions where both relative orders are geometrically defensible. Pass `precedence=[(earlier_segment_id, later_segment_id), ...]` to fix specific relations. See [docs/reading-order.md](docs/reading-order.md).|
+
+## Extracting reading order
+
+The plain `.extract_text(...)` methods collate characters by page-global coordinates. That is correct for simple pages, but it misorders a common report layout: an upper half split into two columns, a lower half containing a single full-width column, and centered subheadings that span both columns. A page-global sort can place the upper-right column *after* the lower full-width block.
+
+`.get_reading_order(...)` instead treats each framed block — and each spanning band — as a **local reading boundary**, then orders only those boundaries:
+
+- full-width bands and columns are detected from the page's rectangles (or supplied explicitly with `frames=[(x0, top, x1, bottom), ...]`); when a page has no frames, virtual frames are inferred from the text geometry;
+- within a horizontal band, columns are ordered left-to-right; between bands, reading proceeds top-to-bottom; an upper-right column therefore always stays ahead of a lower band;
+- each returned `ReadingSegment` keeps its original frame `bbox`, its `layout` (`"column"` or `"full_width"`), and the `text` extracted from the characters inside that frame;
+- when both relative orders are consistent with the geometry, the position is reported as a `ReadingAmbiguity` (with both candidate orders) instead of being guessed;
+- pass a short `precedence` list of `(earlier_segment_id, later_segment_id)` pairs to pin those few relations that geometry cannot settle.
+
+```python
+order = page.get_reading_order()
+for segment in order.segments:
+    print(segment.segment_id, segment.layout, segment.bbox, segment.text)
+
+# Positions where either order is geometrically defensible:
+print(order.ambiguities)
+
+# Fix a specific relation using the reported segment ids:
+order = page.get_reading_order(precedence=[(2, 1)])
+print(order.extract_text())
+```
+
+See [docs/reading-order.md](docs/reading-order.md) for the full details.
 
 ## Extracting tables
 

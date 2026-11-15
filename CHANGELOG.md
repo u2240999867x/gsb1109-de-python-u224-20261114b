@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file. The format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- Add `Page.get_reading_order(...)` (and `pdfplumber.reading.get_reading_order(...)`) for geometry-aware reading order on framed pages. It segments the page into full-width bands and side-by-side columns, preserves each segment's original frame bounding box and text, reports `ReadingAmbiguity` positions where both relative orders are geometrically defensible, and accepts fixed `precedence` constraints to resolve them. See [docs/reading-order.md](docs/reading-order.md).
+
 ## [0.11.10] — 2026-06-14
 
 ### Changed
